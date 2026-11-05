@@ -17,24 +17,38 @@ class DispenserStatusPage extends StatefulWidget {
 class _DispenserStatusPageState extends State<DispenserStatusPage> {
   int? _dispensingSlot; // Menjejaki slot yang sedang melakukan dispense
 
-  // Pembolehubah untuk menyimpan stream supaya tidak di-reset bila page reload
-  late final Stream<List<Map<String, dynamic>>> _medicationsStream;
-  late final Stream<List<Map<String, dynamic>>> _stokStream;
+  late Stream<List<Map<String, dynamic>>> _medicationsStream;
+  late Stream<List<Map<String, dynamic>>> _stokStream;
+  int _streamGeneration = 0;
 
   @override
   void initState() {
     super.initState();
+    _initializeStreams();
+  }
+
+  void _initializeStreams() {
     final user = supabase.auth.currentUser;
 
-    // Initialize stream SEKALI SAHAJA masa page mula-mula dibuka
     _medicationsStream = supabase
         .from('medications')
-        .stream(primaryKey: ['id'])
-        .eq('user_id', user?.id ?? '');
+        .stream(primaryKey: ['id']).eq('user_id', user?.id ?? '');
 
-    _stokStream = supabase
-        .from('stok_kompartmen')
-        .stream(primaryKey: ['id']);
+    _stokStream = supabase.from('stok_kompartmen').stream(primaryKey: ['id']);
+  }
+
+  void _retryStreams() {
+    setState(() {
+      _initializeStreams();
+      _streamGeneration++;
+    });
+  }
+
+  int? _parseInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value.trim());
+    return null;
   }
 
   // Pengendali manual dispense ubat menggunakan Supabase
@@ -63,7 +77,7 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
       });
 
       // 2. Hantar isyarat ke Raspberry Pi (Jadual 'kawalan')
-      // NOTA: Kita tak perlu tolak baki stok di sini lagi kerana skrip Python 
+      // NOTA: Kita tak perlu tolak baki stok di sini lagi kerana skrip Python
       // di Raspberry Pi akan tolak stok secara automatik selepas motor habis berpusing!
       await supabase.from('kawalan').update({
         'trigger_dispense': true,
@@ -72,7 +86,8 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
 
       if (!mounted) return;
 
-      _showSnackBar('Mengarahkan Smart Pill mengeluarkan $medicationName dari Slot $slotNumber...');
+      _showSnackBar(
+          'Mengarahkan Smart Pill mengeluarkan $medicationName dari Slot $slotNumber...');
     } catch (e) {
       if (!mounted) return;
       _showSnackBar('Gagal menghantar arahan: $e', isError: true);
@@ -100,7 +115,8 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
       appBar: AppBar(
         title: const Text(
           'Dispenser Cartridge Status',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
+          style: TextStyle(
+              fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
         ),
         backgroundColor: Colors.black.withValues(alpha: 0.3),
         elevation: 0,
@@ -119,27 +135,38 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
         child: SafeArea(
           // STREAM 1: Menggunakan pembolehubah stream yang telah di-init
           child: StreamBuilder<List<dynamic>>(
+            key: ValueKey(_streamGeneration),
             stream: _medicationsStream,
             builder: (context, medSnapshot) {
-              
               // STREAM 2: Menggunakan pembolehubah stream stok yang telah di-init
               return StreamBuilder<List<dynamic>>(
                 stream: _stokStream,
                 builder: (context, stokSnapshot) {
-                  
                   if (medSnapshot.hasError || stokSnapshot.hasError) {
-                    return const Center(
-                      child: Text(
-                        'Ralat brader 😢. refresh page balik ler.',
-                        style: TextStyle(color: Colors.redAccent),
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'Ralat memuatkan status dispenser.',
+                            style: TextStyle(color: Colors.redAccent),
+                          ),
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: _retryStreams,
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Cuba Lagi'),
+                          ),
+                        ],
                       ),
                     );
                   }
 
-                  if (medSnapshot.connectionState == ConnectionState.waiting && 
+                  if (medSnapshot.connectionState == ConnectionState.waiting &&
                       stokSnapshot.connectionState == ConnectionState.waiting) {
                     return const Center(
-                      child: CircularProgressIndicator(color: Color(0xFF00B4D8)),
+                      child:
+                          CircularProgressIndicator(color: Color(0xFF00B4D8)),
                     );
                   }
 
@@ -147,20 +174,26 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
                   final stokData = stokSnapshot.data ?? [];
 
                   // Petakan nama ubat mengikut slot (1 hingga 4)
-                  final Map<int, String> slotNames = {1: '', 2: '', 3: '', 4: ''};
+                  final Map<int, String> slotNames = {
+                    1: '',
+                    2: '',
+                    3: '',
+                    4: ''
+                  };
                   for (var med in medications) {
-                    final slotNum = med['slot_number'] as int?;
+                    final slotNum = _parseInt(med['slot_number']);
                     if (slotNum != null && slotNum >= 1 && slotNum <= 4) {
-                      slotNames[slotNum] = med['medication_name']?.toString() ?? '';
+                      slotNames[slotNum] =
+                          med['medication_name']?.toString() ?? '';
                     }
                   }
 
                   // Petakan jumlah baki stok (live dari sensor Pi) mengikut slot (1 hingga 4)
                   final Map<int, int> slotStocks = {1: 0, 2: 0, 3: 0, 4: 0};
                   for (var stok in stokData) {
-                    final id = stok['id'] as int?;
+                    final id = _parseInt(stok['id']);
                     if (id != null && id >= 1 && id <= 4) {
-                      slotStocks[id] = stok['jumlah_baki'] as int? ?? 0;
+                      slotStocks[id] = _parseInt(stok['jumlah_baki']) ?? 0;
                     }
                   }
 
@@ -183,8 +216,8 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
                         const SizedBox(height: 12),
                         ...List.generate(4, (index) {
                           final slotNumber = index + 1;
-                          final medicationName = slotNames[slotNumber]!.isEmpty 
-                              ? 'Empty' 
+                          final medicationName = slotNames[slotNumber]!.isEmpty
+                              ? 'Empty'
                               : slotNames[slotNumber]!;
                           final currentStock = slotStocks[slotNumber]!;
 
@@ -339,29 +372,33 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          medicationName == 'Empty' ? 'Slot $slotNumber (Unassigned)' : medicationName,
+                          medicationName == 'Empty'
+                              ? 'Slot $slotNumber (Unassigned)'
+                              : medicationName,
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
-                            decoration: medicationName == 'Empty' ? TextDecoration.lineThrough : null,
+                            decoration: medicationName == 'Empty'
+                                ? TextDecoration.lineThrough
+                                : null,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Row(
-                          crossAxisAlignment: CrossAxisAlignment.start, 
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Container(
                               width: 8,
                               height: 8,
-                              margin: const EdgeInsets.only(top: 4), 
+                              margin: const EdgeInsets.only(top: 4),
                               decoration: BoxDecoration(
                                 color: statusColor,
                                 shape: BoxShape.circle,
                               ),
                             ),
                             const SizedBox(width: 6),
-                            Expanded( 
+                            Expanded(
                               child: Text(
                                 '$statusText\n$stockCount/6 bekas dalam unit',
                                 style: TextStyle(
@@ -369,7 +406,7 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                 ),
-                                softWrap: true, 
+                                softWrap: true,
                               ),
                             ),
                           ],
@@ -410,7 +447,9 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
                         )
                       : const Icon(Icons.download_rounded, size: 18),
                   label: Text(
-                    isDispensing ? 'Motor Berpusing...' : 'DISPENSE SLOT $slotNumber NOW',
+                    isDispensing
+                        ? 'Motor Berpusing...'
+                        : 'DISPENSE SLOT $slotNumber NOW',
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 12,

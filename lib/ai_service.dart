@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 
 class AIService {
   static const String _apiKey =
-      'AQ.Ab8RN6KkF79UsKkhQjBTQyof9rWJZlviV3TztEi1bFo909AQsQ';
+      'AQ.Ab8RN6L-UdQZwKvkKXmyv-jvrUbJGjKpgFuaW0awkC1wbPKaTQ';
 
   // Active production endpoints
   static const String _primaryModel = 'gemini-3.8-flash';

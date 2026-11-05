@@ -1,4 +1,5 @@
 import 'dart:ui';
+import 'package:flutter/foundation.dart'; // Ditambah untuk semakan kIsWeb
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
@@ -28,33 +29,40 @@ void main() async {
 
   // 1. Inisialisasi pangkalan data timezone
   tz.initializeTimeZones();
-  try {
-    final String timeZoneName = await FlutterTimezone.getLocalTimezone();
-    tz.setLocalLocation(tz.getLocation(timeZoneName));
-  } catch (e) {
-    // Fallback jika gagal dapatkan zon masa peranti
+  if (!kIsWeb) {
+    try {
+      final String timeZoneName = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(timeZoneName));
+    } catch (e) {
+      // Fallback jika gagal dapatkan zon masa peranti
+      tz.setLocalLocation(tz.getLocation('Asia/Kuala_Lumpur'));
+    }
+  } else {
+    // Tetapan zon masa lalai untuk pelayar Web
     tz.setLocalLocation(tz.getLocation('Asia/Kuala_Lumpur'));
   }
 
-  // 2. Inisialisasi Supabase
+  // 2. Inisialisasi Supabase (Disokong sepenuhnya pada Web & Mobile)
   await Supabase.initialize(
     url: 'https://avaeybsttlviabcuczxc.supabase.co',
     publishableKey: 'sb_publishable_ZVd9xk054Cwt76QAKIWnoA_BJYz4Bog',
   );
 
-  // 3. Inisialisasi Firebase & FCM Service (Bungkus dalam try-catch elak layar putih jika run di platform lain)
-  try {
-    await Firebase.initializeApp();
-    await FcmService().init();
-  } catch (e) {
-    debugPrint("Ralat Inisialisasi Firebase / FCM: $e");
-  }
+  // 3. Inisialisasi Firebase & FCM Service (HANYA untuk peranti Android / iOS fizikal)
+  if (!kIsWeb) {
+    try {
+      await Firebase.initializeApp();
+      await FcmService().init();
+    } catch (e) {
+      debugPrint("Ralat Inisialisasi Firebase / FCM: $e");
+    }
 
-  // 4. Inisialisasi NotificationService Tempatan
-  try {
-    await NotificationService().init(navigatorKey);
-  } catch (e) {
-    debugPrint("Ralat Inisialisasi NotificationService: $e");
+    // 4. Inisialisasi NotificationService Tempatan
+    try {
+      await NotificationService().init(navigatorKey);
+    } catch (e) {
+      debugPrint("Ralat Inisialisasi NotificationService: $e");
+    }
   }
 
   runApp(const MyApp());
