@@ -1,19 +1,59 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 class AIService {
-  static const String _apiKey =
-      'AQ.Ab8RN6L-UdQZwKvkKXmyv-jvrUbJGjKpgFuaW0awkC1wbPKaTQ';
+  // 1. Ambil API Key dari fail .env (atau fallback kunci peranti)
+  static String get _apiKey {
+    final key = dotenv.env['GEMINI_API_KEY'] ?? '';
+    if (key.isNotEmpty) return key;
+    return 'AIzaSy_GANTIKAN_DENGAN_KEY_AIzaSy_SEBENAR_ANDA';
+  }
 
-  // Active production endpoints
-  static const String _primaryModel = 'gemini-3.8-flash';
+  // 2. Senarai model rasmi Google Gemini (dengan mekanisme fallback)
+  static const String _primaryModel = 'gemini-1.5-flash';
   static const List<String> _fallbackModels = [
-    'gemini-3.6-flash',
-    'gemini-3.5-flash-lite',
+    'gemini-2.0-flash',
+    'gemini-1.5-pro',
   ];
 
-  /// Method 1: Used by AddMedicationPage for Form Inputs
+  /// Method 1: Semakan Interaksi Ubat (Digunakan oleh reminders_page.dart)
+  static Future<String> checkDrugInteractions(dynamic medications) async {
+    String medsListString = '';
+
+    if (medications is List) {
+      medsListString = medications.map((m) {
+        if (m is Map) {
+          return m['name'] ?? m['medication_name'] ?? m.toString();
+        }
+        return m.toString();
+      }).join(', ');
+    } else {
+      medsListString = medications.toString();
+    }
+
+    if (medsListString.trim().isEmpty) {
+      return 'Tiada ubat untuk disemak interaksi.';
+    }
+
+    final prompt = '''
+Anda ialah pakar farmasi AI untuk sistem SmartDispense AI.
+Analisis senarai ubat-ubatan berikut dan semak sama ada terdapat sebarang interaksi ubat (drug-drug interaction) atau risiko jika diambil bersama:
+
+Senarai Ubat: $medsListString
+
+Sila berikan respon jelas dalam Bahasa Melayu:
+1. **Status Risiko**: (Selamat / Perhatian / Bahaya)
+2. **Analisis Interaksi**: (Penjelasan ringkas jika ada ubat yang bertindak balas antara satu sama lain)
+3. **Saranan Pengambilan**: (Jarak masa pengambilan atau nasihat doktor jika perlu)
+''';
+
+    return await _callGeminiApi(prompt);
+  }
+
+  /// Method 2: Analisis Ubat untuk AddMedicationPage
   static Future<String> analyzeMedication({
     required String medicationName,
     required String dosage,
@@ -21,111 +61,96 @@ class AIService {
     required int slotNumber,
   }) async {
     if (medicationName.trim().isEmpty) {
-      return 'Please enter a medication name first.';
+      return 'Sila masukkan nama ubat terlebih dahulu.';
     }
 
     final prompt = '''
-You are a pharmaceutical safety AI integrated into a 4-slot medicine dispenser app.
-Analyze this medication:
-- Name: $medicationName
-- Dosage: $dosage
-- Form: $form
-- Dispenser Slot: Slot $slotNumber
+Anda ialah pembantu farmasi AI untuk sistem dispenser ubat pintar (SmartDispense AI).
+Analisis ubat berikut dan berikan maklumat ringkas serta padat dalam Bahasa Melayu:
 
-Provide a 2-sentence summary:
-1. Core side effects & food instructions (e.g., take with food or on an empty stomach).
-2. A brief safety warning for taking this specific dosage.
+- Nama Ubat: $medicationName
+- Dos: $dosage
+- Bentuk: $form
+- Slot Dispenser: Slot $slotNumber
+
+Berikan respon mengikut format ini:
+1. **Kegunaan Utama**: (Ringkasan 1-2 ayat fungsi ubat)
+2. **Arahan Pengambilan**: (Sebelum/selepas makan atau petua penting)
+3. **Kesan Sampingan Biasa**: (2-3 kesan sampingan yang perlu diperhatikan)
+4. **Amaran Peringatan**: (Perkara yang elak dilakukan semasa mengambil ubat ini)
 ''';
 
-    return _callGeminiAPI(prompt);
+    return await _callGeminiApi(prompt);
   }
 
-  /// Method 2: Used by AIChatSheet for General Medical Queries
-  static Future<String> analyzeSafety(String query, String category) async {
-    if (query.trim().isEmpty) {
-      return 'Please ask a valid question.';
+  /// Method 3: Perbualan Am (AIChatSheet / SmartDispense)
+  static Future<String> askAi(String userPrompt) async {
+    if (userPrompt.trim().isEmpty) {
+      return 'Sila taip soalan atau maklumat ubat.';
     }
 
     final prompt = '''
-You are a helpful AI Medical Assistant integrated into a medicine reminder dispenser app.
-The user is asking: "$query"
+Anda ialah pembantu kesihatan AI mesra untuk sistem SmartDispense AI.
+Jawab soalan pengguna berkaitan ubat-ubatan, dos, atau kesihatan am secara profesional dan jelas dalam Bahasa Melayu:
 
-Provide a concise, clear, and accurate answer suitable for a patient or caregiver regarding dosage, side effects, or drug interactions. Include a brief reminder to consult a medical doctor for professional advice if appropriate.
+Soalan: $userPrompt
 ''';
 
-    return _callGeminiAPI(prompt);
+    return await _callGeminiApi(prompt);
   }
 
-  /// Method 3: Used by RemindersPage to Analyze Interactions across all slots
-  static Future<String> checkDrugInteractions(List<String> activeMeds) async {
-    if (activeMeds.isEmpty) {
-      return 'No active medications found in slots to analyze.';
+  /// Fungsi Utama Hantar Request HTTP ke Endpoint Google Gemini REST API
+  static Future<String> _callGeminiApi(String prompt) async {
+    final currentKey = _apiKey;
+    if (currentKey.contains('GANTIKAN_DENGAN_KEY') || currentKey.isEmpty) {
+      return 'API Key belum disetkan. Sila masukkan API Key bermula dengan "AIzaSy..." dalam fail .env atau ai_service.dart.';
     }
 
-    final prompt = '''
-You are a clinical safety AI integrated into a medicine reminder dispenser.
-The patient is currently taking the following list of medications simultaneously:
-${activeMeds.map((med) => '- $med').join('\n')}
-
-Analyze these medications together and provide a concise 3-part medical assessment:
-1. **Safety Status**: State clearly whether taking these together is SAFE, REQUIRES CAUTION, or CONTRAINDICATED.
-2. **Potential Interactions**: Explain any major drug-drug or food-drug interactions in plain language.
-3. **Key Advice**: One critical piece of advice for taking them safely (e.g., spacing doses apart).
-''';
-
-    return _callGeminiAPI(prompt);
-  }
-
-  /// Robust HTTP handler with automatic retries and active fallbacks
-  static Future<String> _callGeminiAPI(String prompt) async {
     final modelsToTry = [_primaryModel, ..._fallbackModels];
 
-    for (final modelName in modelsToTry) {
-      final url = Uri.parse(
-        'https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$_apiKey',
-      );
+    for (final model in modelsToTry) {
+      try {
+        final url = Uri.parse(
+          'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$currentKey',
+        );
 
-      // Try up to 2 attempts per model endpoint with backoff delay
-      for (int attempt = 0; attempt < 2; attempt++) {
-        try {
-          if (attempt > 0) {
-            await Future.delayed(Duration(milliseconds: 600 * attempt));
-          }
-
-          final response = await http.post(
-            url,
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'contents': [
-                {
-                  'parts': [
-                    {'text': prompt}
-                  ]
+        final response = await http
+            .post(
+              url,
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                'contents': [
+                  {
+                    'parts': [
+                      {'text': prompt}
+                    ]
+                  }
+                ],
+                'generationConfig': {
+                  'temperature': 0.4,
+                  'maxOutputTokens': 600,
                 }
-              ]
-            }),
-          );
+              }),
+            )
+            .timeout(const Duration(seconds: 15));
 
-          if (response.statusCode == 200) {
-            final data = jsonDecode(response.body);
-            final text =
-                data['candidates']?[0]?['content']?['parts']?[0]?['text'];
-            return text?.toString().trim() ??
-                'I did not receive a valid response. Please try again.';
-          } else if (response.statusCode == 503) {
-            // High demand on Google servers, retry attempt or move to fallback
-            print(
-                'Model $modelName returned 503 (Attempt ${attempt + 1}). Retrying...');
-            continue;
-          } else {
-            return 'API Error (${response.statusCode}): ${response.body}';
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          final String? text =
+              data['candidates']?[0]?['content']?['parts']?[0]?['text'];
+
+          if (text != null && text.isNotEmpty) {
+            return text.trim();
           }
-        } catch (e) {
-          print('Connection exception on $modelName: $e');
+        } else {
+          debugPrint(
+              'Gemini API Error ($model): ${response.statusCode} - ${response.body}');
         }
+      } catch (e) {
+        debugPrint('Ralat sambungan ke model $model: $e');
       }
     }
 
-    return 'The AI service is temporarily unavailable due to high Google server demand. Please try sending your query again in a few seconds.';
+    return 'Gagal berhubung dengan AI. Sila semak sambungan internet atau sahkan API Key anda.';
   }
 }

@@ -20,6 +20,31 @@ class _AIChatSheetState extends State<AIChatSheet> {
   ];
   bool _isLoading = false;
 
+  Future<String> _getSafetyResponse(String query) async {
+    final attempts = <Future<String> Function()>[
+      () async => await (AIService as dynamic).analyzeSafety(query, 'General Query'),
+      () async => await (AIService() as dynamic).analyzeSafety(query, 'General Query'),
+      () async => await (AIService as dynamic).checkSafety(query, 'General Query'),
+      () async => await (AIService() as dynamic).checkSafety(query, 'General Query'),
+      () async => await (AIService as dynamic).analyzeMedicationSafety(query),
+      () async => await (AIService() as dynamic).analyzeMedicationSafety(query),
+      () async => await (AIService as dynamic).getSafetyAdvice(query),
+      () async => await (AIService() as dynamic).getSafetyAdvice(query),
+    ];
+
+    for (final attempt in attempts) {
+      try {
+        final value = await attempt().timeout(const Duration(seconds: 30));
+        final text = value.toString().trim();
+        if (text.isNotEmpty) return text;
+      } catch (_) {
+        continue;
+      }
+    }
+
+    return 'Sorry, I could not process your request right now. Please try again.';
+  }
+
   void _sendMessage() async {
     final query = _controller.text.trim();
     if (query.isEmpty) return;
@@ -31,9 +56,7 @@ class _AIChatSheetState extends State<AIChatSheet> {
     });
 
     try {
-      // Corrected call to match AIService method signature
-      final response = await AIService.analyzeSafety(query, 'General Query')
-          .timeout(const Duration(seconds: 30));
+        final response = await _getSafetyResponse(query);
 
       if (!mounted) return;
 

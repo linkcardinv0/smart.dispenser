@@ -180,7 +180,9 @@ class _RemindersPageState extends State<RemindersPage> {
     if (!mounted) return;
     setState(() {
       _isAnalyzing = false;
-      _interactionResult = result;
+      _interactionResult = result.trim().isNotEmpty
+          ? result
+          : 'Semakan interaksi ubat tidak tersedia buat masa ini. Sila rujuk doktor atau ahli farmasi tentang kombinasi ubat anda.';
     });
   }
 
