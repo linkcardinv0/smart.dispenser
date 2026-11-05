@@ -7,9 +7,9 @@ import 'package:http/http.dart' as http;
 class AIService {
   // 1. Ambil API Key dari fail .env (atau fallback kunci peranti)
   static String get _apiKey {
-    final key = dotenv.env['GEMINI_API_KEY'] ?? '';
+    final key = dotenv.env['AQ.Ab8RN6L-UdQZwKvkKXmyv-jvrUbJGjKpgFuaW0awkC1wbPKaTQ'] ?? '';
     if (key.isNotEmpty) return key;
-    return 'AIzaSy_GANTIKAN_DENGAN_KEY_AIzaSy_SEBENAR_ANDA';
+    return 'AQ.Ab8RN6L-UdQZwKvkKXmyv-jvrUbJGjKpgFuaW0awkC1wbPKaTQ';
   }
 
   // 2. Senarai model rasmi Google Gemini (dengan mekanisme fallback)
