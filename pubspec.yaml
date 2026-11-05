@@ -1,0 +1,31 @@
+name: flutter_application_1
+description: "A new Flutter medicine reminder app."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  flutter_timezone: ^3.0.1
+  flutter_local_notifications: ^17.2.0
+  audioplayers: ^6.1.0
+  url_launcher: ^6.3.0
+  supabase_flutter: ^2.18.3
+  google_sign_in: ^7.2.0
+  http: ^1.2.0
+  timezone: ^0.9.4
+  firebase_core: ^3.0.0
+  firebase_messaging: ^15.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
