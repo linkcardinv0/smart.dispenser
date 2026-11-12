@@ -438,9 +438,10 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
                   else
                     Text(
                       _aiInsightText,
+                      softWrap: true,
                       style: const TextStyle(
-                        color: Colors.black54,
-                        fontSize: 11,
+                        color: Colors.black87,
+                        fontSize: 13,
                         height: 1.4,
                       ),
                     ),
