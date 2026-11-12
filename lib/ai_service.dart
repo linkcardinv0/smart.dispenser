@@ -96,7 +96,10 @@ Soalan: $userPrompt
 
       final data = response.data;
       if (data is Map && data['text'] is String) {
-        final text = (data['text'] as String).trim();
+        final text = (data['text'] as String)
+            .replaceAll('**', '')
+            .replaceAll('#', '')
+            .trim();
         if (text.isNotEmpty) return text;
       }
 
