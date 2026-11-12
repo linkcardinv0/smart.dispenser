@@ -1,6 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'ai_service.dart'; // Imports your existing Gemini AIService
+import 'ai_service.dart';
 
 class AIChatSheet extends StatefulWidget {
   const AIChatSheet({super.key});
@@ -21,28 +21,7 @@ class _AIChatSheetState extends State<AIChatSheet> {
   bool _isLoading = false;
 
   Future<String> _getSafetyResponse(String query) async {
-    final attempts = <Future<String> Function()>[
-      () async => await (AIService as dynamic).analyzeSafety(query, 'General Query'),
-      () async => await (AIService() as dynamic).analyzeSafety(query, 'General Query'),
-      () async => await (AIService as dynamic).checkSafety(query, 'General Query'),
-      () async => await (AIService() as dynamic).checkSafety(query, 'General Query'),
-      () async => await (AIService as dynamic).analyzeMedicationSafety(query),
-      () async => await (AIService() as dynamic).analyzeMedicationSafety(query),
-      () async => await (AIService as dynamic).getSafetyAdvice(query),
-      () async => await (AIService() as dynamic).getSafetyAdvice(query),
-    ];
-
-    for (final attempt in attempts) {
-      try {
-        final value = await attempt().timeout(const Duration(seconds: 30));
-        final text = value.toString().trim();
-        if (text.isNotEmpty) return text;
-      } catch (_) {
-        continue;
-      }
-    }
-
-    return 'Sorry, I could not process your request right now. Please try again.';
+    return AIService.askAi(query);
   }
 
   void _sendMessage() async {
@@ -56,7 +35,7 @@ class _AIChatSheetState extends State<AIChatSheet> {
     });
 
     try {
-        final response = await _getSafetyResponse(query);
+      final response = await _getSafetyResponse(query);
 
       if (!mounted) return;
 
@@ -75,7 +54,7 @@ class _AIChatSheetState extends State<AIChatSheet> {
         _messages.add({
           'sender': 'ai',
           'text':
-              'Sorry, I could not process your request right now. Please try again.',
+              'Sorry, I could not process your request right now. Please try again. - Zikry',
         });
       });
     } finally {
@@ -98,8 +77,7 @@ class _AIChatSheetState extends State<AIChatSheet> {
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             color: const Color(0xFF0F172A).withValues(alpha: 0.85),
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(28)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             border: Border.all(
               color: const Color(0xFF00B4D8).withValues(alpha: 0.3),
               width: 1.5,
@@ -207,8 +185,7 @@ class _AIChatSheetState extends State<AIChatSheet> {
                   Expanded(
                     child: TextField(
                       controller: _controller,
-                      style:
-                          const TextStyle(color: Colors.white, fontSize: 14),
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
                       decoration: InputDecoration(
                         hintText:
                             'Ask about dosage, side effects, interactions...',

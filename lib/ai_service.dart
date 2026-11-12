@@ -1,24 +1,7 @@
-import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AIService {
-  // 1. Ambil API Key dari fail .env (atau fallback kunci peranti)
-  static String get _apiKey {
-    final key = dotenv.env['AQ.Ab8RN6L-UdQZwKvkKXmyv-jvrUbJGjKpgFuaW0awkC1wbPKaTQ'] ?? '';
-    if (key.isNotEmpty) return key;
-    return 'AQ.Ab8RN6L-UdQZwKvkKXmyv-jvrUbJGjKpgFuaW0awkC1wbPKaTQ';
-  }
-
-  // 2. Senarai model rasmi Google Gemini (dengan mekanisme fallback)
-  static const String _primaryModel = 'gemini-1.5-flash';
-  static const List<String> _fallbackModels = [
-    'gemini-2.0-flash',
-    'gemini-1.5-pro',
-  ];
-
   /// Method 1: Semakan Interaksi Ubat (Digunakan oleh reminders_page.dart)
   static Future<String> checkDrugInteractions(dynamic medications) async {
     String medsListString = '';
@@ -50,7 +33,7 @@ Sila berikan respon jelas dalam Bahasa Melayu:
 3. **Saranan Pengambilan**: (Jarak masa pengambilan atau nasihat doktor jika perlu)
 ''';
 
-    return await _callGeminiApi(prompt);
+    return _callAi(prompt);
   }
 
   /// Method 2: Analisis Ubat untuk AddMedicationPage
@@ -80,7 +63,7 @@ Berikan respon mengikut format ini:
 4. **Amaran Peringatan**: (Perkara yang elak dilakukan semasa mengambil ubat ini)
 ''';
 
-    return await _callGeminiApi(prompt);
+    return _callAi(prompt);
   }
 
   /// Method 3: Perbualan Am (AIChatSheet / SmartDispense)
@@ -96,61 +79,32 @@ Jawab soalan pengguna berkaitan ubat-ubatan, dos, atau kesihatan am secara profe
 Soalan: $userPrompt
 ''';
 
-    return await _callGeminiApi(prompt);
+    return _callAi(prompt);
   }
 
-  /// Fungsi Utama Hantar Request HTTP ke Endpoint Google Gemini REST API
-  static Future<String> _callGeminiApi(String prompt) async {
-    final currentKey = _apiKey;
-    if (currentKey.contains('GANTIKAN_DENGAN_KEY') || currentKey.isEmpty) {
-      return 'API Key belum disetkan. Sila masukkan API Key bermula dengan "AIzaSy..." dalam fail .env atau ai_service.dart.';
-    }
+  static Future<String> _callAi(String prompt) async {
+    try {
+      final response = await Supabase.instance.client.functions.invoke(
+        'ai-assistant',
+        body: {'prompt': prompt},
+      );
 
-    final modelsToTry = [_primaryModel, ..._fallbackModels];
-
-    for (final model in modelsToTry) {
-      try {
-        final url = Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$currentKey',
-        );
-
-        final response = await http
-            .post(
-              url,
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({
-                'contents': [
-                  {
-                    'parts': [
-                      {'text': prompt}
-                    ]
-                  }
-                ],
-                'generationConfig': {
-                  'temperature': 0.4,
-                  'maxOutputTokens': 600,
-                }
-              }),
-            )
-            .timeout(const Duration(seconds: 15));
-
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          final String? text =
-              data['candidates']?[0]?['content']?['parts']?[0]?['text'];
-
-          if (text != null && text.isNotEmpty) {
-            return text.trim();
-          }
-        } else {
-          debugPrint(
-              'Gemini API Error ($model): ${response.statusCode} - ${response.body}');
-        }
-      } catch (e) {
-        debugPrint('Ralat sambungan ke model $model: $e');
+      if (response.status < 200 || response.status >= 300) {
+        debugPrint('AI Edge Function returned status ${response.status}.');
+        return 'Servis AI tidak dapat memproses permintaan. Sila cuba lagi.';
       }
-    }
 
-    return 'Gagal berhubung dengan AI. Sila semak sambungan internet atau sahkan API Key anda.';
+      final data = response.data;
+      if (data is Map && data['text'] is String) {
+        final text = (data['text'] as String).trim();
+        if (text.isNotEmpty) return text;
+      }
+
+      debugPrint('AI Edge Function returned an invalid response.');
+      return 'Servis AI tidak memberikan jawapan yang sah. Sila cuba lagi.';
+    } on Exception catch (error) {
+      debugPrint('AI Edge Function request failed: $error');
+      return 'Gagal menghubungi servis AI. Pastikan fungsi Supabase telah diterbitkan dan anda telah log masuk.';
+    }
   }
 }
