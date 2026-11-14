@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'main.dart'; // Mengakses instance global 'supabase'
+import 'fcm_service.dart';
 
 class SettingsPage extends StatefulWidget {
   final User? user;
@@ -71,6 +72,30 @@ class _SettingsPageState extends State<SettingsPage> {
                       onChanged: (val) => setState(() => _biometricUnlock = val),
                     ),
                   ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildGlassContainer(
+                child: ListTile(
+                  leading: const Icon(Icons.notifications_active,
+                      color: Color(0xFF00B4D8)),
+                  title: const Text('Enable Phone Reminders',
+                      style: TextStyle(color: Colors.white)),
+                  subtitle: const Text(
+                    'Tap once to receive medication alerts on this device',
+                    style: TextStyle(color: Colors.white54, fontSize: 11),
+                  ),
+                  onTap: () async {
+                    final ok = await FcmService().enablePush();
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text(ok
+                          ? 'Reminders enabled on this device'
+                          : 'Not enabled. On iPhone, first Add to Home Screen, open the app from the icon, then try again.'),
+                      backgroundColor: const Color(0xFF00B4D8),
+                      behavior: SnackBarBehavior.floating,
+                    ));
+                  },
                 ),
               ),
               const SizedBox(height: 16),

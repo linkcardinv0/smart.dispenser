@@ -4,6 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+/// Firebase Console -> Project settings -> Cloud Messaging ->
+/// Web Push certificates -> "Key pair" (VAPID key). Diperlukan untuk web / iPhone.
+const String kWebVapidKey = 'PASTE_YOUR_WEB_PUSH_CERTIFICATE_KEY';
+
 // Top-level function untuk mengendalikan push notification semasa app ditutup (Background)
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -16,16 +20,20 @@ class FcmService {
   factory FcmService() => _instance;
   FcmService._internal();
 
-  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+  // Lazy: elak ralat jika Firebase belum diinisialisasi
+  FirebaseMessaging get _messaging => FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
 
-  /// Inisialisasi FCM & Notifikasi Tempatan
+  /// Dipanggil (web) apabila mesej tiba semasa app sedang dibuka.
+  void Function(String title, String body)? onWebForeground;
+  bool _webListening = false;
+  bool _tokenRefreshListening = false;
+
+  /// Inisialisasi FCM & Notifikasi Tempatan (Android / iOS app sahaja)
   Future<void> init() async {
-    // 1. Daftarkan handler latar belakang
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // 2. Minta kebenaran push notification
     NotificationSettings settings = await _messaging.requestPermission(
       alert: true,
       badge: true,
@@ -35,22 +43,59 @@ class FcmService {
     if (settings.authorizationStatus == AuthorizationStatus.authorized) {
       debugPrint('Kebenaran FCM diberikan.');
 
-      // 3. Sediakan saluran notifikasi tempatan untuk paparan semasa app aktif
       await _setupLocalNotifications();
 
-      // 4. Dengarkan mesej yang masuk semasa app aktif (Foreground)
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
         _showForegroundNotification(message);
       });
 
-      // 5. Simpan token ke Supabase
       await syncTokenToSupabase();
-
-      // 6. Dengarkan pembaharuan token secara automatik
-      _messaging.onTokenRefresh.listen((newToken) async {
-        await _saveTokenToSupabase(newToken);
-      });
+      _listenTokenRefresh();
     }
+  }
+
+  /// WEB: dengar mesej semasa app dibuka (panggil sekali di main()).
+  void listenWebForeground() {
+    if (!kIsWeb || _webListening) return;
+    _webListening = true;
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      final n = message.notification;
+      if (n != null) {
+        onWebForeground?.call(n.title ?? '', n.body ?? '');
+      }
+    });
+  }
+
+  /// WEB / iPhone: MESTI dipanggil dari tekanan butang (syarat iOS Safari).
+  Future<bool> enablePush() async {
+    try {
+      final settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      if (settings.authorizationStatus != AuthorizationStatus.authorized) {
+        return false;
+      }
+      final token = await _messaging.getToken(
+        vapidKey: kIsWeb ? kWebVapidKey : null,
+      );
+      if (token == null) return false;
+      await _saveTokenToSupabase(token);
+      _listenTokenRefresh();
+      return true;
+    } catch (e) {
+      debugPrint('enablePush gagal: $e');
+      return false;
+    }
+  }
+
+  void _listenTokenRefresh() {
+    if (_tokenRefreshListening) return;
+    _tokenRefreshListening = true;
+    _messaging.onTokenRefresh.listen((newToken) async {
+      await _saveTokenToSupabase(newToken);
+    });
   }
 
   /// Sediakan saluran notifikasi Android
@@ -100,14 +145,27 @@ class FcmService {
     }
   }
 
-  /// Simpan atau kemaskini FCM token semasa ke Supabase
+  /// Simpan atau kemaskini FCM token semasa ke Supabase.
+  /// Selamat dipanggil selepas log masuk (tidak melempar ralat).
   Future<void> syncTokenToSupabase() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
 
-    String? token = await _messaging.getToken();
-    if (token != null) {
-      await _saveTokenToSupabase(token);
+      if (kIsWeb) {
+        // Web: jangan minta kebenaran di sini. Hanya segerak jika sudah dibenarkan.
+        final s = await _messaging.getNotificationSettings();
+        if (s.authorizationStatus != AuthorizationStatus.authorized) return;
+      }
+
+      final token = await _messaging.getToken(
+        vapidKey: kIsWeb ? kWebVapidKey : null,
+      );
+      if (token != null) {
+        await _saveTokenToSupabase(token);
+      }
+    } catch (e) {
+      debugPrint('syncTokenToSupabase gagal: $e');
     }
   }
 
@@ -121,7 +179,7 @@ class FcmService {
         {
           'user_id': user.id,
           'token': token,
-          'device_name': defaultTargetPlatform.name,
+          'device_name': kIsWeb ? 'web' : defaultTargetPlatform.name,
           'updated_at': DateTime.now().toIso8601String(),
         },
         onConflict: 'token',
