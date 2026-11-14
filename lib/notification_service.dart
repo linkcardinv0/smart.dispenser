@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:audioplayers/audioplayers.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -12,8 +11,6 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
-  final AudioPlayer _audioPlayer = AudioPlayer();
-
   Future<void> init(GlobalKey<NavigatorState> navigatorKey) async {
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -24,7 +21,6 @@ class NotificationService {
     await _notificationsPlugin.initialize(
       initSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
-        _stopAlarmSound();
         if (response.payload != null) {
           navigatorKey.currentState?.pushNamed(
             '/alarm',
@@ -42,57 +38,85 @@ class NotificationService {
       const AndroidNotificationChannel channel = AndroidNotificationChannel(
         'medication_alarm_channel_v3',
         'Medication Alarm Channel',
-        description: 'High priority full-screen alarms for pill dispensing',
+        description: 'Daily medication reminders',
         importance: Importance.max,
         playSound: true,
         enableVibration: true,
       );
-
       await androidImplementation.createNotificationChannel(channel);
       await androidImplementation.requestNotificationsPermission();
-      await androidImplementation.requestExactAlarmsPermission();
     }
   }
 
-  /// Menjadualkan Penggera Tepat Pada Masa Hadapan (Pengendalian Selamat Zon Masa)
+  /// Menjadualkan notifikasi ubat setiap hari pada masa yang dipilih.
   Future<void> scheduleMedicationAlarm({
     required int id,
     required String medicationName,
     required int slotNumber,
     required DateTime scheduledTime,
   }) async {
+    final androidImplementation =
+        _notificationsPlugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+
+    if (androidImplementation != null) {
+      var notificationsEnabled =
+          await androidImplementation.areNotificationsEnabled() ?? false;
+      if (!notificationsEnabled) {
+        await androidImplementation.requestNotificationsPermission();
+        notificationsEnabled =
+            await androidImplementation.areNotificationsEnabled() ?? false;
+      }
+      if (!notificationsEnabled) {
+        throw StateError(
+          'Kebenaran notifikasi dimatikan. Hidupkan notifikasi aplikasi '
+          'SmartDispense AI di tetapan telefon.',
+        );
+      }
+
+      var canScheduleExact =
+          await androidImplementation.canScheduleExactNotifications() ?? true;
+      if (!canScheduleExact) {
+        await androidImplementation.requestExactAlarmsPermission();
+        canScheduleExact =
+            await androidImplementation.canScheduleExactNotifications() ??
+                false;
+      }
+      if (!canScheduleExact) {
+        throw StateError(
+          'Kebenaran penggera tepat belum diberikan. Benarkan penggera tepat '
+          'untuk SmartDispense AI di tetapan telefon.',
+        );
+      }
+    }
+
     const AndroidNotificationDetails androidDetails =
         AndroidNotificationDetails(
       'medication_alarm_channel_v3',
       'Medication Alarm Channel',
-      channelDescription:
-          'High priority full-screen alarms for pill dispensing',
+      channelDescription: 'Daily medication reminders',
       importance: Importance.max,
       priority: Priority.max,
-      fullScreenIntent: true,
       category: AndroidNotificationCategory.alarm,
       audioAttributesUsage: AudioAttributesUsage.alarm,
-      ongoing: true,
-      autoCancel: false,
+      autoCancel: true,
       playSound: true,
     );
 
     const NotificationDetails notificationDetails =
         NotificationDetails(android: androidDetails);
 
-    // Ambil lokasi zon masa semasa (secara selamat)
     final location = tz.local;
-
     var tzScheduledTime = tz.TZDateTime.from(
       scheduledTime,
       location,
     );
 
-    // Jika masa yang dijadualkan sudah berlalu untuk hari ini, anjakkan ke hari esok secara automatik
     if (tzScheduledTime.isBefore(tz.TZDateTime.now(location))) {
       tzScheduledTime = tzScheduledTime.add(const Duration(days: 1));
     }
 
+    await _notificationsPlugin.cancel(id);
     await _notificationsPlugin.zonedSchedule(
       id,
       '⏰ MASA MAKAN UBAT!',
@@ -102,112 +126,13 @@ class NotificationService {
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.time,
       payload: '$medicationName|Slot $slotNumber',
     );
   }
 
-  /// Ujian Penggera Serta-merta (Untuk Butang TEST)
-  Future<void> triggerInstantAlarmTest({
-    required BuildContext context,
-    required String medicationName,
-    required int slotNumber,
-  }) async {
-    final androidImplementation =
-        _notificationsPlugin.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
-
-    try {
-      var notificationsEnabled =
-          await androidImplementation?.areNotificationsEnabled() ?? false;
-      if (!notificationsEnabled) {
-        await androidImplementation?.requestNotificationsPermission();
-        notificationsEnabled =
-            await androidImplementation?.areNotificationsEnabled() ?? false;
-      }
-
-      if (!notificationsEnabled) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Kebenaran notifikasi dimatikan. Hidupkan notifikasi aplikasi '
-                'SmartDispense AI di tetapan telefon.',
-              ),
-            ),
-          );
-        }
-        return;
-      }
-
-      try {
-        await _audioPlayer.setReleaseMode(ReleaseMode.loop);
-        await _audioPlayer.play(
-          UrlSource(
-            'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg',
-          ),
-        );
-      } catch (e) {
-        debugPrint('Gagal memainkan bunyi: $e');
-      }
-
-      const AndroidNotificationDetails androidDetails =
-          AndroidNotificationDetails(
-        'medication_alarm_channel_v3',
-        'Medication Alarm Channel',
-        channelDescription:
-            'High priority full-screen alarms for pill dispensing',
-        importance: Importance.max,
-        priority: Priority.max,
-        category: AndroidNotificationCategory.alarm,
-        audioAttributesUsage: AudioAttributesUsage.alarm,
-        ongoing: true,
-        autoCancel: false,
-        playSound: true,
-      );
-
-      const NotificationDetails notificationDetails =
-          NotificationDetails(android: androidDetails);
-
-      await _notificationsPlugin.show(
-        888,
-        '⏰ MASA MAKAN UBAT!',
-        'Sila ambil $medicationName dari Slot $slotNumber',
-        notificationDetails,
-        payload: '$medicationName|Slot $slotNumber',
-      );
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Ujian dihantar. Semak panel notifikasi telefon.',
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Gagal menghantar notifikasi ujian: $e');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Notifikasi ujian gagal: $e')),
-        );
-      }
-    }
-  }
-
-  void stopAlarm() {
-    _stopAlarmSound();
-    _notificationsPlugin.cancel(888);
-    _notificationsPlugin.cancelAll();
-  }
-
-  void _stopAlarmSound() {
-    try {
-      _audioPlayer.stop();
-    } catch (e) {
-      debugPrint("Gagal menghentikan bunyi: $e");
-    }
-  }
+  Future<void> cancelMedicationAlarm({required int id}) =>
+      _notificationsPlugin.cancel(id);
 
   /// Hantar SMS Notifikasi
   Future<void> sendSMSNotification({

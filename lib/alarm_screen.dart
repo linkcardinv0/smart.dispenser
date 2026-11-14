@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'notification_service.dart';
 
 class AlarmScreen extends StatelessWidget {
   const AlarmScreen({super.key});
@@ -78,7 +77,6 @@ class AlarmScreen extends StatelessWidget {
                         ),
                       ),
                       onPressed: () {
-                        NotificationService().stopAlarm();
                         Navigator.pop(context);
                       },
                       icon: const Icon(Icons.check_circle_rounded, size: 28),
@@ -91,7 +89,6 @@ class AlarmScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                   TextButton(
                     onPressed: () {
-                      NotificationService().stopAlarm();
                       Navigator.pop(context);
                     },
                     child: const Text(

@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'ai_service.dart';
+import 'notification_service.dart';
 import 'main.dart'; // Mengakses instance global 'supabase'
 
 class RemindersPage extends StatefulWidget {
@@ -48,7 +49,8 @@ class _RemindersPageState extends State<RemindersPage> {
     }
   }
 
-  Future<void> _selectTime(int slotNumber, Map<String, dynamic>? slotData) async {
+  Future<void> _selectTime(
+      int slotNumber, Map<String, dynamic>? slotData) async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
 
@@ -82,10 +84,8 @@ class _RemindersPageState extends State<RemindersPage> {
         // LANGKAH 1: Kemas kini jadual 'medications'
         // ==========================================
         if (slotData != null && slotData['id'] != null) {
-          await supabase
-              .from('medications')
-              .update({'scheduled_time': formattedTimeString})
-              .eq('id', slotData['id']);
+          await supabase.from('medications').update(
+              {'scheduled_time': formattedTimeString}).eq('id', slotData['id']);
         } else {
           await supabase.from('medications').insert({
             'user_id': user.id,
@@ -106,13 +106,10 @@ class _RemindersPageState extends State<RemindersPage> {
             .maybeSingle();
 
         if (existingJadual != null) {
-          await supabase
-              .from('jadual_ubat')
-              .update({
-                'masa': formattedTimeString,
-                'status_aktif': true,
-              })
-              .eq('id', existingJadual['id']);
+          await supabase.from('jadual_ubat').update({
+            'masa': formattedTimeString,
+            'status_aktif': true,
+          }).eq('id', existingJadual['id']);
         } else {
           await supabase.from('jadual_ubat').insert({
             'motor_pilihan': slotNumber.toString(),
@@ -121,14 +118,39 @@ class _RemindersPageState extends State<RemindersPage> {
           });
         }
 
-        // 🟢 NOTIFIKASI LOCAL ALARM DIBUANG: 
-        // Notifikasi kini dipicu secara terpusat oleh Raspberry Pi / Pelayan melalui FCM ke semua peranti.
+        final medicationName =
+            slotData?['medication_name']?.toString().trim() ?? '';
+        final notificationId = 1000 + slotNumber;
+
+        if (medicationName.isNotEmpty &&
+            medicationName != 'Empty' &&
+            medicationName != 'Unassigned') {
+          final now = DateTime.now();
+          await NotificationService().scheduleMedicationAlarm(
+            id: notificationId,
+            medicationName: medicationName,
+            slotNumber: slotNumber,
+            scheduledTime: DateTime(
+              now.year,
+              now.month,
+              now.day,
+              picked.hour,
+              picked.minute,
+            ),
+          );
+        } else {
+          await NotificationService().cancelMedicationAlarm(id: notificationId);
+        }
 
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Slot $slotNumber masa dikemas kini ke ${picked.format(context)} & disegerakkan dengan Raspberry Pi',
+              medicationName.isNotEmpty &&
+                      medicationName != 'Empty' &&
+                      medicationName != 'Unassigned'
+                  ? 'Peringatan $medicationName dijadualkan setiap hari pada ${picked.format(context)}'
+                  : 'Masa Slot $slotNumber disimpan. Tambah ubat untuk mengaktifkan peringatan.',
             ),
             backgroundColor: const Color(0xFF00B4D8),
             behavior: SnackBarBehavior.floating,
@@ -138,7 +160,9 @@ class _RemindersPageState extends State<RemindersPage> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Gagal mengemas kini jadual: $e'),
+            content: Text(
+              'Gagal menyimpan jadual atau menjadualkan notifikasi: $e',
+            ),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
           ),
@@ -204,8 +228,7 @@ class _RemindersPageState extends State<RemindersPage> {
         child: StreamBuilder<List<Map<String, dynamic>>>(
           stream: supabase
               .from('medications')
-              .stream(primaryKey: ['id'])
-              .eq('user_id', user?.id ?? ''),
+              .stream(primaryKey: ['id']).eq('user_id', user?.id ?? ''),
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return Center(
@@ -399,9 +422,11 @@ class _RemindersPageState extends State<RemindersPage> {
     required int slotNumber,
     required Map<String, dynamic>? slotData,
   }) {
-    final medName = slotData?['medication_name']?.toString().trim() ?? 'Unassigned';
-    final dosageInfo = slotData?['dosage']?.toString().trim() ?? 'No inventory data';
-    
+    final medName =
+        slotData?['medication_name']?.toString().trim() ?? 'Unassigned';
+    final dosageInfo =
+        slotData?['dosage']?.toString().trim() ?? 'No inventory data';
+
     final displayTime = _parseStringToTimeOfDay(
       slotData?['scheduled_time']?.toString(),
       _defaultSchedules[slotNumber]!,
@@ -422,8 +447,7 @@ class _RemindersPageState extends State<RemindersPage> {
             children: [
               CircleAvatar(
                 radius: 18,
-                backgroundColor:
-                    const Color(0xFF00B4D8).withValues(alpha: 0.2),
+                backgroundColor: const Color(0xFF00B4D8).withValues(alpha: 0.2),
                 child: Text(
                   'S$slotNumber',
                   style: const TextStyle(
