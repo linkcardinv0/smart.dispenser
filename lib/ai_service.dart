@@ -31,6 +31,8 @@ Sila berikan respon jelas dalam Bahasa Melayu:
 1. **Status Risiko**: (Selamat / Perhatian / Bahaya)
 2. **Analisis Interaksi**: (Penjelasan ringkas jika ada ubat yang bertindak balas antara satu sama lain)
 3. **Saranan Pengambilan**: (Jarak masa pengambilan atau nasihat doktor jika perlu)
+
+Jawab ringkas (maksimum 200 perkataan) dan pastikan jawapan lengkap sehingga akhir.
 ''';
 
     return _callAi(prompt);
@@ -61,6 +63,8 @@ Berikan respon mengikut format ini:
 2. **Arahan Pengambilan**: (Sebelum/selepas makan atau petua penting)
 3. **Kesan Sampingan Biasa**: (2-3 kesan sampingan yang perlu diperhatikan)
 4. **Amaran Peringatan**: (Perkara yang elak dilakukan semasa mengambil ubat ini)
+
+Jawab ringkas (maksimum 200 perkataan) dan pastikan jawapan lengkap sehingga akhir.
 ''';
 
     return _callAi(prompt);
@@ -77,6 +81,8 @@ Anda ialah pembantu kesihatan AI mesra untuk sistem SmartDispense AI.
 Jawab soalan pengguna berkaitan ubat-ubatan, dos, atau kesihatan am secara profesional dan jelas dalam Bahasa Melayu:
 
 Soalan: $userPrompt
+
+Jawab ringkas (maksimum 200 perkataan), guna ayat lengkap, dan pastikan jawapan siap sehingga akhir.
 ''';
 
     return _callAi(prompt);
@@ -87,7 +93,7 @@ Soalan: $userPrompt
       final response = await Supabase.instance.client.functions.invoke(
         'ai-assistant',
         body: {'prompt': prompt},
-      );
+      ).timeout(const Duration(seconds: 60));
 
       if (response.status < 200 || response.status >= 300) {
         debugPrint('AI Edge Function returned status ${response.status}.');
@@ -98,9 +104,15 @@ Soalan: $userPrompt
       if (data is Map && data['text'] is String) {
         final text = (data['text'] as String)
             .replaceAll('**', '')
-            .replaceAll('#', '')
+            .replaceAll(RegExp(r'^#+\s*', multiLine: true), '')
             .trim();
-        if (text.isNotEmpty) return text;
+        if (text.isNotEmpty) {
+          // Edge function menanda jawapan terpotong (had token model)
+          if (data['truncated'] == true) {
+            return '$text\n\n(Jawapan dipendekkan. Tanya semula dengan soalan lebih spesifik untuk maklumat lanjut.)';
+          }
+          return text;
+        }
       }
 
       debugPrint('AI Edge Function returned an invalid response.');

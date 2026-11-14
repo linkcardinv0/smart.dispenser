@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -10,6 +11,9 @@ class NotificationService {
 
   final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
+
+  static const String _channelId = 'medication_alarm_channel_v3';
+  static const String _channelName = 'Medication Alarm Channel';
 
   Future<void> init(GlobalKey<NavigatorState> navigatorKey) async {
     const AndroidInitializationSettings androidSettings =
@@ -36,8 +40,8 @@ class NotificationService {
 
     if (androidImplementation != null) {
       const AndroidNotificationChannel channel = AndroidNotificationChannel(
-        'medication_alarm_channel_v3',
-        'Medication Alarm Channel',
+        _channelId,
+        _channelName,
         description: 'Daily medication reminders',
         importance: Importance.max,
         playSound: true,
@@ -48,71 +52,84 @@ class NotificationService {
     }
   }
 
+  /// Pastikan kebenaran notifikasi & penggera tepat diberikan.
+  /// Melempar StateError jika masih belum dibenarkan.
+  Future<void> _ensurePermissions() async {
+    final androidImplementation =
+        _notificationsPlugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    if (androidImplementation == null) return;
+
+    var notificationsEnabled =
+        await androidImplementation.areNotificationsEnabled() ?? false;
+    if (!notificationsEnabled) {
+      await androidImplementation.requestNotificationsPermission();
+      notificationsEnabled =
+          await androidImplementation.areNotificationsEnabled() ?? false;
+    }
+    if (!notificationsEnabled) {
+      throw StateError(
+        'Kebenaran notifikasi dimatikan. Hidupkan notifikasi aplikasi '
+        'SmartDispense AI di tetapan telefon.',
+      );
+    }
+
+    var canScheduleExact =
+        await androidImplementation.canScheduleExactNotifications() ?? true;
+    if (!canScheduleExact) {
+      await androidImplementation.requestExactAlarmsPermission();
+      canScheduleExact =
+          await androidImplementation.canScheduleExactNotifications() ?? false;
+    }
+    if (!canScheduleExact) {
+      throw StateError(
+        'Kebenaran penggera tepat belum diberikan. Benarkan "Alarms & '
+        'reminders" untuk SmartDispense AI di tetapan telefon.',
+      );
+    }
+  }
+
+  static const NotificationDetails _details = NotificationDetails(
+    android: AndroidNotificationDetails(
+      _channelId,
+      _channelName,
+      channelDescription: 'Daily medication reminders',
+      importance: Importance.max,
+      priority: Priority.max,
+      category: AndroidNotificationCategory.alarm,
+      audioAttributesUsage: AudioAttributesUsage.alarm,
+      fullScreenIntent: true,
+      autoCancel: true,
+      playSound: true,
+      enableVibration: true,
+    ),
+  );
+
   /// Menjadualkan notifikasi ubat setiap hari pada masa yang dipilih.
   Future<void> scheduleMedicationAlarm({
     required int id,
     required String medicationName,
     required int slotNumber,
     required DateTime scheduledTime,
+    bool checkPermissions = true,
   }) async {
-    final androidImplementation =
-        _notificationsPlugin.resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
-
-    if (androidImplementation != null) {
-      var notificationsEnabled =
-          await androidImplementation.areNotificationsEnabled() ?? false;
-      if (!notificationsEnabled) {
-        await androidImplementation.requestNotificationsPermission();
-        notificationsEnabled =
-            await androidImplementation.areNotificationsEnabled() ?? false;
-      }
-      if (!notificationsEnabled) {
-        throw StateError(
-          'Kebenaran notifikasi dimatikan. Hidupkan notifikasi aplikasi '
-          'SmartDispense AI di tetapan telefon.',
-        );
-      }
-
-      var canScheduleExact =
-          await androidImplementation.canScheduleExactNotifications() ?? true;
-      if (!canScheduleExact) {
-        await androidImplementation.requestExactAlarmsPermission();
-        canScheduleExact =
-            await androidImplementation.canScheduleExactNotifications() ??
-                false;
-      }
-      if (!canScheduleExact) {
-        throw StateError(
-          'Kebenaran penggera tepat belum diberikan. Benarkan penggera tepat '
-          'untuk SmartDispense AI di tetapan telefon.',
-        );
-      }
-    }
-
-    const AndroidNotificationDetails androidDetails =
-        AndroidNotificationDetails(
-      'medication_alarm_channel_v3',
-      'Medication Alarm Channel',
-      channelDescription: 'Daily medication reminders',
-      importance: Importance.max,
-      priority: Priority.max,
-      category: AndroidNotificationCategory.alarm,
-      audioAttributesUsage: AudioAttributesUsage.alarm,
-      autoCancel: true,
-      playSound: true,
-    );
-
-    const NotificationDetails notificationDetails =
-        NotificationDetails(android: androidDetails);
+    if (checkPermissions) await _ensurePermissions();
 
     final location = tz.local;
-    var tzScheduledTime = tz.TZDateTime.from(
-      scheduledTime,
+    final now = tz.TZDateTime.now(location);
+
+    // Bina masa menggunakan zon masa tempatan (bukan DateTime biasa)
+    var tzScheduledTime = tz.TZDateTime(
       location,
+      now.year,
+      now.month,
+      now.day,
+      scheduledTime.hour,
+      scheduledTime.minute,
     );
 
-    if (tzScheduledTime.isBefore(tz.TZDateTime.now(location))) {
+    // Jika masa hari ini sudah lepas, mulakan esok
+    if (!tzScheduledTime.isAfter(now)) {
       tzScheduledTime = tzScheduledTime.add(const Duration(days: 1));
     }
 
@@ -122,17 +139,96 @@ class NotificationService {
       '⏰ MASA MAKAN UBAT!',
       'Sila ambil $medicationName dari Slot $slotNumber',
       tzScheduledTime,
-      notificationDetails,
+      _details,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time,
       payload: '$medicationName|Slot $slotNumber',
     );
+
+    debugPrint('Alarm slot $slotNumber ($medicationName) dijadualkan: '
+        '$tzScheduledTime');
   }
 
   Future<void> cancelMedicationAlarm({required int id}) =>
       _notificationsPlugin.cancel(id);
+
+  /// Baca jadual `medications` dari Supabase dan jadualkan semula SEMUA alarm.
+  /// Panggil: selepas log masuk / app dibuka, selepas simpan ubat, selepas tukar masa.
+  Future<void> syncFromDatabase() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    final rows = await Supabase.instance.client
+        .from('medications')
+        .select()
+        .eq('user_id', user.id);
+
+    bool isRealMed(Map<String, dynamic> m) {
+      final n = m['medication_name']?.toString().trim() ?? '';
+      return n.isNotEmpty && n != 'Empty' && n != 'Unassigned';
+    }
+
+    // Satu baris terbaik bagi setiap slot (utamakan yang ada nama ubat)
+    final Map<int, Map<String, dynamic>> bySlot = {};
+    for (final raw in rows) {
+      final m = Map<String, dynamic>.from(raw as Map);
+      final slot = m['slot_number'];
+      if (slot is! int) continue;
+      final current = bySlot[slot];
+      if (current == null || isRealMed(m) || !isRealMed(current)) {
+        bySlot[slot] = m;
+      }
+    }
+
+    await _ensurePermissions();
+
+    for (final entry in bySlot.entries) {
+      final slot = entry.key;
+      final m = entry.value;
+      final id = 1000 + slot;
+      final timeStr = m['scheduled_time']?.toString();
+
+      if (!isRealMed(m) || timeStr == null || !timeStr.contains(':')) {
+        await cancelMedicationAlarm(id: id);
+        continue;
+      }
+
+      try {
+        final parts = timeStr.split(':');
+        final hour = int.parse(parts[0]);
+        final minute = int.parse(parts[1]);
+        await scheduleMedicationAlarm(
+          id: id,
+          medicationName: m['medication_name'].toString().trim(),
+          slotNumber: slot,
+          scheduledTime: DateTime(2000, 1, 1, hour, minute),
+          checkPermissions: false,
+        );
+      } catch (e) {
+        debugPrint('Gagal jadualkan alarm slot $slot: $e');
+      }
+    }
+  }
+
+  /// UJIAN: bunyikan alarm dalam [seconds] saat dari sekarang.
+  /// Berguna untuk menguji kebenaran/bateri telefon.
+  Future<void> scheduleTestAlarm({int seconds = 60}) async {
+    await _ensurePermissions();
+    final when = tz.TZDateTime.now(tz.local).add(Duration(seconds: seconds));
+    await _notificationsPlugin.zonedSchedule(
+      9999,
+      '⏰ UJIAN ALARM',
+      'Jika anda nampak ini, alarm berfungsi.',
+      when,
+      _details,
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      payload: 'Ujian Alarm|Test',
+    );
+  }
 
   /// Hantar SMS Notifikasi
   Future<void> sendSMSNotification({

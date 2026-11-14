@@ -120,27 +120,10 @@ class _RemindersPageState extends State<RemindersPage> {
 
         final medicationName =
             slotData?['medication_name']?.toString().trim() ?? '';
-        final notificationId = 1000 + slotNumber;
 
-        if (medicationName.isNotEmpty &&
-            medicationName != 'Empty' &&
-            medicationName != 'Unassigned') {
-          final now = DateTime.now();
-          await NotificationService().scheduleMedicationAlarm(
-            id: notificationId,
-            medicationName: medicationName,
-            slotNumber: slotNumber,
-            scheduledTime: DateTime(
-              now.year,
-              now.month,
-              now.day,
-              picked.hour,
-              picked.minute,
-            ),
-          );
-        } else {
-          await NotificationService().cancelMedicationAlarm(id: notificationId);
-        }
+        // LANGKAH 3: Jadualkan semula SEMUA alarm daripada pangkalan data
+        // (masa baharu sudah disimpan di Langkah 1)
+        await NotificationService().syncFromDatabase();
 
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -254,10 +237,19 @@ class _RemindersPageState extends State<RemindersPage> {
               4: null,
             };
 
+            // Jika ada baris pendua untuk satu slot, utamakan yang ada nama ubat sebenar
+            bool isRealMed(Map<String, dynamic> m) {
+              final n = m['medication_name']?.toString().trim() ?? '';
+              return n.isNotEmpty && n != 'Empty' && n != 'Unassigned';
+            }
+
             for (var med in medications) {
               final slotNum = med['slot_number'] as int?;
               if (slotNum != null && slotNum >= 1 && slotNum <= 4) {
-                slotsData[slotNum] = med;
+                final current = slotsData[slotNum];
+                if (current == null || isRealMed(med) || !isRealMed(current)) {
+                  slotsData[slotNum] = med;
+                }
               }
             }
 

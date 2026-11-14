@@ -11,6 +11,7 @@ class AIChatSheet extends StatefulWidget {
 
 class _AIChatSheetState extends State<AIChatSheet> {
   final TextEditingController _controller = TextEditingController();
+  final ScrollController _scroll = ScrollController();
   final List<Map<String, String>> _messages = [
     {
       'sender': 'ai',
@@ -20,19 +21,39 @@ class _AIChatSheetState extends State<AIChatSheet> {
   ];
   bool _isLoading = false;
 
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
   Future<String> _getSafetyResponse(String query) async {
     return AIService.askAi(query);
   }
 
   void _sendMessage() async {
     final query = _controller.text.trim();
-    if (query.isEmpty) return;
+    if (query.isEmpty || _isLoading) return;
 
     setState(() {
       _messages.add({'sender': 'user', 'text': query});
       _isLoading = true;
       _controller.clear();
     });
+    _scrollToBottom();
 
     try {
       final response = await _getSafetyResponse(query);
@@ -47,6 +68,7 @@ class _AIChatSheetState extends State<AIChatSheet> {
               : response,
         });
       });
+      _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
 
@@ -54,7 +76,7 @@ class _AIChatSheetState extends State<AIChatSheet> {
         _messages.add({
           'sender': 'ai',
           'text':
-              'Sorry, I could not process your request right now. Please try again. - Zikry',
+              'Sorry, I could not process your request right now. Please try again.',
         });
       });
     } finally {
@@ -121,6 +143,7 @@ class _AIChatSheetState extends State<AIChatSheet> {
               // Chat Message List
               Expanded(
                 child: ListView.builder(
+                  controller: _scroll,
                   itemCount: _messages.length,
                   itemBuilder: (context, index) {
                     final msg = _messages[index];
@@ -145,7 +168,7 @@ class _AIChatSheetState extends State<AIChatSheet> {
                                 : Colors.white.withValues(alpha: 0.15),
                           ),
                         ),
-                        child: Text(
+                        child: SelectableText(
                           msg['text'] ?? '',
                           style: const TextStyle(
                               color: Colors.white, fontSize: 13, height: 1.4),
@@ -185,6 +208,8 @@ class _AIChatSheetState extends State<AIChatSheet> {
                   Expanded(
                     child: TextField(
                       controller: _controller,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _sendMessage(),
                       style: const TextStyle(color: Colors.white, fontSize: 14),
                       decoration: InputDecoration(
                         hintText:
@@ -217,7 +242,7 @@ class _AIChatSheetState extends State<AIChatSheet> {
                     child: IconButton(
                       icon: const Icon(Icons.send_rounded,
                           color: Colors.white, size: 20),
-                      onPressed: _sendMessage,
+                      onPressed: _isLoading ? null : _sendMessage,
                     ),
                   ),
                 ],

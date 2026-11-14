@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ai_service.dart';
 import 'main.dart'; // Mengakses instance global 'supabase'
+import 'notification_service.dart';
 
 class SlotSensorData {
   final int slotNumber;
@@ -43,6 +44,8 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
 
   int _selectedTimeIndex = 0;
   final List<String> _reminderTimes = const ['08:00 AM', '12:00 PM', '06:00 PM'];
+  // Nilai 24-jam sepadan dengan _reminderTimes (disimpan ke pangkalan data)
+  final List<String> _reminderTimeValues = const ['08:00', '12:00', '18:00'];
 
   // AI Insight state variables
   String _aiInsightText = 'Tap "Analyze with AI" to generate real-time safety warnings.';
@@ -104,14 +107,65 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
     setState(() => _isSaving = true);
 
     try {
-      await supabase.from('medications').insert({
-        'user_id': user.id,
+      final scheduledTime = _reminderTimeValues[_selectedTimeIndex];
+
+      // Satu slot = satu baris. Kemas kini baris sedia ada (cth. slot 'Empty'
+      // yang sudah ada masa) supaya tiada baris pendua.
+      final existing = await supabase
+          .from('medications')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('slot_number', _selectedSlot)
+          .limit(1)
+          .maybeSingle();
+
+      final payload = {
         'medication_name': medName,
         'dosage': dosage,
         'slot_number': _selectedSlot,
-      });
+        'scheduled_time': scheduledTime,
+      };
 
-      _showSnackBar('Medication successfully saved to Supabase!');
+      if (existing != null) {
+        await supabase
+            .from('medications')
+            .update(payload)
+            .eq('id', existing['id']);
+      } else {
+        await supabase.from('medications').insert({
+          'user_id': user.id,
+          ...payload,
+        });
+      }
+
+      // Sinkronkan ke 'jadual_ubat' (Raspberry Pi auto-dispense)
+      final existingJadual = await supabase
+          .from('jadual_ubat')
+          .select()
+          .eq('motor_pilihan', _selectedSlot.toString())
+          .maybeSingle();
+
+      if (existingJadual != null) {
+        await supabase.from('jadual_ubat').update({
+          'masa': scheduledTime,
+          'status_aktif': true,
+        }).eq('id', existingJadual['id']);
+      } else {
+        await supabase.from('jadual_ubat').insert({
+          'motor_pilihan': _selectedSlot.toString(),
+          'masa': scheduledTime,
+          'status_aktif': true,
+        });
+      }
+
+      // Jadualkan alarm tepat pada masa yang dipilih
+      try {
+        await NotificationService().syncFromDatabase();
+      } catch (e) {
+        _showSnackBar('Ubat disimpan, tetapi alarm gagal dijadualkan: $e');
+      }
+
+      _showSnackBar('Medication saved. Reminder set for ${_reminderTimes[_selectedTimeIndex]} daily.');
       if (mounted) Navigator.of(context).pop();
     } on PostgrestException catch (error) {
       _showSnackBar('Supabase Error: ${error.message}');

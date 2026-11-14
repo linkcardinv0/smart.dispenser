@@ -135,6 +135,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _fetchUserProfile();
+    _syncAlarms();
+  }
+
+  /// Jadualkan semula semua alarm ubat setiap kali dashboard dibuka
+  /// (selepas log masuk, app dibuka semula, reboot, kemas kini app).
+  Future<void> _syncAlarms() async {
+    if (kIsWeb) return;
+    try {
+      await NotificationService().syncFromDatabase();
+    } catch (e) {
+      debugPrint('Gagal menyegerakkan alarm: $e');
+    }
   }
 
   /// Fetch user profile from Supabase Database
