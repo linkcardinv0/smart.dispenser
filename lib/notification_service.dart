@@ -11,7 +11,7 @@ class NotificationService {
 
   final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
-      
+
   final AudioPlayer _audioPlayer = AudioPlayer();
 
   Future<void> init(GlobalKey<NavigatorState> navigatorKey) async {
@@ -34,8 +34,8 @@ class NotificationService {
       },
     );
 
-    final androidImplementation = _notificationsPlugin
-        .resolvePlatformSpecificImplementation<
+    final androidImplementation =
+        _notificationsPlugin.resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
 
     if (androidImplementation != null) {
@@ -61,10 +61,12 @@ class NotificationService {
     required int slotNumber,
     required DateTime scheduledTime,
   }) async {
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
       'medication_alarm_channel_v3',
       'Medication Alarm Channel',
-      channelDescription: 'High priority full-screen alarms for pill dispensing',
+      channelDescription:
+          'High priority full-screen alarms for pill dispensing',
       importance: Importance.max,
       priority: Priority.max,
       fullScreenIntent: true,
@@ -110,46 +112,86 @@ class NotificationService {
     required String medicationName,
     required int slotNumber,
   }) async {
+    final androidImplementation =
+        _notificationsPlugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+
     try {
-      await _audioPlayer.setReleaseMode(ReleaseMode.loop);
-      await _audioPlayer.play(
-        UrlSource('https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg'),
+      var notificationsEnabled =
+          await androidImplementation?.areNotificationsEnabled() ?? false;
+      if (!notificationsEnabled) {
+        await androidImplementation?.requestNotificationsPermission();
+        notificationsEnabled =
+            await androidImplementation?.areNotificationsEnabled() ?? false;
+      }
+
+      if (!notificationsEnabled) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Kebenaran notifikasi dimatikan. Hidupkan notifikasi aplikasi '
+                'SmartDispense AI di tetapan telefon.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      try {
+        await _audioPlayer.setReleaseMode(ReleaseMode.loop);
+        await _audioPlayer.play(
+          UrlSource(
+            'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg',
+          ),
+        );
+      } catch (e) {
+        debugPrint('Gagal memainkan bunyi: $e');
+      }
+
+      const AndroidNotificationDetails androidDetails =
+          AndroidNotificationDetails(
+        'medication_alarm_channel_v3',
+        'Medication Alarm Channel',
+        channelDescription:
+            'High priority full-screen alarms for pill dispensing',
+        importance: Importance.max,
+        priority: Priority.max,
+        category: AndroidNotificationCategory.alarm,
+        audioAttributesUsage: AudioAttributesUsage.alarm,
+        ongoing: true,
+        autoCancel: false,
+        playSound: true,
       );
+
+      const NotificationDetails notificationDetails =
+          NotificationDetails(android: androidDetails);
+
+      await _notificationsPlugin.show(
+        888,
+        '⏰ MASA MAKAN UBAT!',
+        'Sila ambil $medicationName dari Slot $slotNumber',
+        notificationDetails,
+        payload: '$medicationName|Slot $slotNumber',
+      );
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Ujian dihantar. Semak panel notifikasi telefon.',
+            ),
+          ),
+        );
+      }
     } catch (e) {
-      debugPrint("Gagal memainkan bunyi: $e");
-    }
-
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'medication_alarm_channel_v3',
-      'Medication Alarm Channel',
-      channelDescription: 'High priority full-screen alarms for pill dispensing',
-      importance: Importance.max,
-      priority: Priority.max,
-      fullScreenIntent: true,
-      category: AndroidNotificationCategory.alarm,
-      audioAttributesUsage: AudioAttributesUsage.alarm,
-      ongoing: true,
-      autoCancel: false,
-      playSound: true,
-    );
-
-    const NotificationDetails notificationDetails =
-        NotificationDetails(android: androidDetails);
-
-    await _notificationsPlugin.show(
-      888,
-      '⏰ MASA MAKAN UBAT!',
-      'Sila ambil $medicationName dari Slot $slotNumber',
-      notificationDetails,
-      payload: '$medicationName|Slot $slotNumber',
-    );
-
-    if (context.mounted) {
-      Navigator.pushNamed(
-        context,
-        '/alarm',
-        arguments: '$medicationName|Slot $slotNumber',
-      );
+      debugPrint('Gagal menghantar notifikasi ujian: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Notifikasi ujian gagal: $e')),
+        );
+      }
     }
   }
 
