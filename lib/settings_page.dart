@@ -2,7 +2,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'main.dart'; // Mengakses instance global 'supabase'
-import 'fcm_service.dart';
+import 'package:flutter/foundation.dart';
+import 'web_push_service.dart';
+import 'notification_service.dart';
 
 class SettingsPage extends StatefulWidget {
   final User? user;
@@ -86,7 +88,18 @@ class _SettingsPageState extends State<SettingsPage> {
                     style: TextStyle(color: Colors.white54, fontSize: 11),
                   ),
                   onTap: () async {
-                    final ok = await FcmService().enablePush();
+                    bool ok;
+                    if (kIsWeb) {
+                      // Mesti panggilan pertama dalam tap (syarat iOS)
+                      ok = await enableWebPush();
+                    } else {
+                      try {
+                        await NotificationService().syncFromDatabase();
+                        ok = true;
+                      } catch (_) {
+                        ok = false;
+                      }
+                    }
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                       content: Text(ok

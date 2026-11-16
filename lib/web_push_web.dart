@@ -6,10 +6,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 const String kWebVapidPublicKey = 'BHXu_J2VCN1C7l_gFGzx4n4waFKVp1JF7evTphVuWW6PC8GfjMg1yUmr4NnUlOwadwfq2pZu3L2yagYCeuSQe7E';
 
 @JS('smartPush.subscribe')
-external JSPromise<JSString?> _subscribe(JSString vapidKey);
+external JSPromise _subscribe(JSString vapidKey);
 
 @JS('smartPush.existing')
-external JSPromise<JSString?> _existing();
+external JSPromise _existing();
 
 Future<void> _save(String subJson) async {
   final m = jsonDecode(subJson) as Map<String, dynamic>;
@@ -26,7 +26,7 @@ Future<bool> enableWebPush() async {
   try {
     final res = await _subscribe(kWebVapidPublicKey.toJS).toDart;
     if (res == null) return false;
-    await _save(res.toDart);
+    await _save((res as JSString).toDart);
     return true;
   } catch (_) {
     return false;
@@ -37,6 +37,6 @@ Future<bool> enableWebPush() async {
 Future<void> syncWebPushSubscription() async {
   try {
     final res = await _existing().toDart;
-    if (res != null) await _save(res.toDart);
+    if (res != null) await _save((res as JSString).toDart);
   } catch (_) {}
 }

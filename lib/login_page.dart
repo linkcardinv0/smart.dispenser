@@ -2,7 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'main.dart'; // Rujukan instance 'supabase'
-import 'fcm_service.dart'; // Import FcmService
+import 'web_push_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -44,8 +44,8 @@ class _LoginPageState extends State<LoginPage> {
         );
 
         if (res.user != null) {
-          // 🟢 Simpan FCM Token peranti ke Supabase selepas mendaftar
-          await FcmService().syncTokenToSupabase();
+          // 🟢 Sambung semula langganan Web Push peranti ini selepas mendaftar
+          await syncWebPushSubscription();
         }
 
         _showSnackBar('Pendaftaran berjaya! Sila semak e-mel pengesahan jika ada.');
@@ -57,8 +57,8 @@ class _LoginPageState extends State<LoginPage> {
         );
 
         if (res.user != null) {
-          // 🟢 Simpan FCM Token peranti ke Supabase selepas log masuk
-          await FcmService().syncTokenToSupabase();
+          // 🟢 Sambung semula langganan Web Push peranti ini selepas log masuk
+          await syncWebPushSubscription();
         }
       }
     } on AuthException catch (error) {
