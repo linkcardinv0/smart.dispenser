@@ -5,7 +5,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:flutter_timezone/flutter_timezone.dart';
-import 'package:firebase_core/firebase_core.dart';
 
 import 'login_page.dart';
 import 'add_medication_page.dart';
@@ -18,7 +17,6 @@ import 'ai_chat_sheet.dart';
 import 'pill_logs_sheet.dart';
 import 'notification_service.dart';
 import 'alarm_screen.dart';
-import 'fcm_service.dart';
 
 // Global instance Supabase & Navigator Key
 final supabase = Supabase.instance.client;
@@ -48,16 +46,9 @@ void main() async {
     publishableKey: 'sb_publishable_ZVd9xk054Cwt76QAKIWnoA_BJYz4Bog',
   );
 
-  // 3. Inisialisasi Firebase & FCM Service (HANYA untuk peranti Android / iOS fizikal)
+  // Notifikasi tempatan (HANYA untuk app Android native). Web guna Web Push dari Supabase.
   if (!kIsWeb) {
-    try {
-      await Firebase.initializeApp();
-      await FcmService().init();
-    } catch (e) {
-      debugPrint("Ralat Inisialisasi Firebase / FCM: $e");
-    }
-
-    // 4. Inisialisasi NotificationService Tempatan
+    // 3. Inisialisasi NotificationService Tempatan (alarm Android)
     try {
       await NotificationService().init(navigatorKey);
     } catch (e) {
