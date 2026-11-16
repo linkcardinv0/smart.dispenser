@@ -132,8 +132,8 @@ class _RemindersPageState extends State<RemindersPage> {
               medicationName.isNotEmpty &&
                       medicationName != 'Empty' &&
                       medicationName != 'Unassigned'
-                  ? 'Peringatan $medicationName dijadualkan setiap hari pada ${picked.format(context)}'
-                  : 'Masa Slot $slotNumber disimpan. Tambah ubat untuk mengaktifkan peringatan.',
+                  ? 'Reminder for $medicationName scheduled daily at ${picked.format(context)}'
+                  : 'Slot $slotNumber time saved. Add a medication to activate the reminder.',
             ),
             backgroundColor: const Color(0xFF00B4D8),
             behavior: SnackBarBehavior.floating,
@@ -144,7 +144,7 @@ class _RemindersPageState extends State<RemindersPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Gagal menyimpan jadual atau menjadualkan notifikasi: $e',
+              'Failed to save the schedule or schedule the notification: $e',
             ),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
@@ -168,7 +168,7 @@ class _RemindersPageState extends State<RemindersPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Sila tambah sekurang-kurangnya satu ubat aktif pada mana-mana slot dahulu.',
+            'Please add at least one active medication to a slot first.',
           ),
           backgroundColor: Colors.orangeAccent,
           behavior: SnackBarBehavior.floating,
@@ -189,7 +189,7 @@ class _RemindersPageState extends State<RemindersPage> {
       _isAnalyzing = false;
       _interactionResult = result.trim().isNotEmpty
           ? result
-          : 'Semakan interaksi ubat tidak tersedia buat masa ini. Sila rujuk doktor atau ahli farmasi tentang kombinasi ubat anda.';
+          : 'Drug interaction check is not available right now. Please consult a doctor or pharmacist about your medication combination.';
     });
   }
 
@@ -216,7 +216,7 @@ class _RemindersPageState extends State<RemindersPage> {
             if (snapshot.hasError) {
               return Center(
                 child: Text(
-                  'Ralat memuatkan jadual: ${snapshot.error}',
+                  'Error loading schedule: ${snapshot.error}',
                   style: const TextStyle(color: Colors.redAccent),
                 ),
               );

@@ -62,7 +62,7 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
 
     final user = supabase.auth.currentUser;
     if (user == null) {
-      _showSnackBar('Sila log masuk semula.', isError: true);
+      _showSnackBar('Please log in again.', isError: true);
       return;
     }
 
@@ -87,10 +87,10 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
       if (!mounted) return;
 
       _showSnackBar(
-          'Mengarahkan Smart Pill mengeluarkan $medicationName dari Slot $slotNumber...');
+          'Telling Smart Pill to dispense $medicationName from Slot $slotNumber...');
     } catch (e) {
       if (!mounted) return;
-      _showSnackBar('Gagal menghantar arahan: $e', isError: true);
+      _showSnackBar('Failed to send command: $e', isError: true);
     } finally {
       if (mounted) {
         setState(() => _dispensingSlot = null);
@@ -148,7 +148,7 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Text(
-                            'Ralat memuatkan status dispenser.',
+                            'Error loading dispenser status.',
                             style: TextStyle(color: Colors.redAccent),
                           ),
                           const SizedBox(height: 8),
@@ -205,7 +205,7 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
                         _buildOverviewHeader(),
                         const SizedBox(height: 20),
                         const Text(
-                          'Physical Cartridge Slots (Max 6 Bekas)',
+                          'Physical Cartridge Slots (Max 6 Containers)',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -320,7 +320,7 @@ class _DispenserStatusPageState extends State<DispenserStatusPage> {
 
     if (isEmpty) {
       statusColor = Colors.redAccent;
-      statusText = 'KOSONG (Sila isi bekas)';
+      statusText = 'EMPTY (Please refill the container)';
     } else if (isFull) {
       statusColor = Colors.greenAccent;
       statusText = 'PENUH (Maksimum)';
