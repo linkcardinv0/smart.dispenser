@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'database_service.dart';
 
 class AlarmScreen extends StatelessWidget {
   const AlarmScreen({super.key});
@@ -76,8 +77,17 @@ class AlarmScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(16),
                         ),
                       ),
-                      onPressed: () {
-                        Navigator.pop(context);
+                      onPressed: () async {
+                        // Log the dose so caregivers are not alerted for a missed dose
+                        if (slotInfo != 'Test') {
+                          try {
+                            await DatabaseService().addPillLog(
+                              medicationName: medName,
+                              status: 'TAKEN',
+                            );
+                          } catch (_) {}
+                        }
+                        if (context.mounted) Navigator.pop(context);
                       },
                       icon: const Icon(Icons.check_circle_rounded, size: 28),
                       label: const Text(

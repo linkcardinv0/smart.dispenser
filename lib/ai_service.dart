@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AIService {
-  /// Method 1: Semakan Interaksi Ubat (Digunakan oleh reminders_page.dart)
+  /// Method 1: Drug interaction check (used by reminders_page.dart)
   static Future<String> checkDrugInteractions(dynamic medications) async {
     String medsListString = '';
 
@@ -18,27 +18,28 @@ class AIService {
     }
 
     if (medsListString.trim().isEmpty) {
-      return 'Tiada ubat untuk disemak interaksi.';
+      return 'No medications to check for interactions.';
     }
 
     final prompt = '''
-Anda ialah pakar farmasi AI untuk sistem SmartDispense AI.
-Analisis senarai ubat-ubatan berikut dan semak sama ada terdapat sebarang interaksi ubat (drug-drug interaction) atau risiko jika diambil bersama:
+You are an AI pharmacist for the SmartDispense AI system.
+Analyze the following list of medications and check whether there are any drug-drug interactions or risks if they are taken together:
 
-Senarai Ubat: $medsListString
+Medication list: $medsListString
 
-Sila berikan respon jelas dalam Bahasa Melayu:
-1. **Status Risiko**: (Selamat / Perhatian / Bahaya)
-2. **Analisis Interaksi**: (Penjelasan ringkas jika ada ubat yang bertindak balas antara satu sama lain)
-3. **Saranan Pengambilan**: (Jarak masa pengambilan atau nasihat doktor jika perlu)
+Please give a clear response in English:
+1. **Risk Status**: (Safe / Caution / Danger)
+2. **Interaction Analysis**: (Brief explanation if any medications interact with each other)
+3. **Recommendation**: (Time gap between doses, or advice to consult a doctor if needed)
 
-Jawab ringkas (maksimum 200 perkataan) dan pastikan jawapan lengkap sehingga akhir.
+Keep it short (maximum 200 words) and make sure the answer is complete to the end.
+Do not give a definitive diagnosis; remind the user to confirm with a doctor or pharmacist.
 ''';
 
     return _callAi(prompt);
   }
 
-  /// Method 2: Analisis Ubat untuk AddMedicationPage
+  /// Method 2: Medication analysis for AddMedicationPage
   static Future<String> analyzeMedication({
     required String medicationName,
     required String dosage,
@@ -46,43 +47,45 @@ Jawab ringkas (maksimum 200 perkataan) dan pastikan jawapan lengkap sehingga akh
     required int slotNumber,
   }) async {
     if (medicationName.trim().isEmpty) {
-      return 'Sila masukkan nama ubat terlebih dahulu.';
+      return 'Please enter the medication name first.';
     }
 
     final prompt = '''
-Anda ialah pembantu farmasi AI untuk sistem dispenser ubat pintar (SmartDispense AI).
-Analisis ubat berikut dan berikan maklumat ringkas serta padat dalam Bahasa Melayu:
+You are an AI pharmacy assistant for a smart medicine dispenser system (SmartDispense AI).
+Analyze the following medication and give brief, concise information in English:
 
-- Nama Ubat: $medicationName
-- Dos: $dosage
-- Bentuk: $form
-- Slot Dispenser: Slot $slotNumber
+- Medication name: $medicationName
+- Dosage: $dosage
+- Form: $form
+- Dispenser slot: Slot $slotNumber
 
-Berikan respon mengikut format ini:
-1. **Kegunaan Utama**: (Ringkasan 1-2 ayat fungsi ubat)
-2. **Arahan Pengambilan**: (Sebelum/selepas makan atau petua penting)
-3. **Kesan Sampingan Biasa**: (2-3 kesan sampingan yang perlu diperhatikan)
-4. **Amaran Peringatan**: (Perkara yang elak dilakukan semasa mengambil ubat ini)
+Respond in this format:
+1. **Main Use**: (1-2 sentence summary of what the medicine is for)
+2. **Instructions**: (Before/after meals or other important tips)
+3. **Common Side Effects**: (2-3 side effects to watch for)
+4. **Warnings**: (Things to avoid while taking this medicine)
 
-Jawab ringkas (maksimum 200 perkataan) dan pastikan jawapan lengkap sehingga akhir.
+Keep it short (maximum 200 words) and make sure the answer is complete to the end.
+Remind the user to confirm with a doctor or pharmacist.
 ''';
 
     return _callAi(prompt);
   }
 
-  /// Method 3: Perbualan Am (AIChatSheet / SmartDispense)
+  /// Method 3: General chat (AIChatSheet / SmartDispense)
   static Future<String> askAi(String userPrompt) async {
     if (userPrompt.trim().isEmpty) {
-      return 'Sila taip soalan atau maklumat ubat.';
+      return 'Please type a question or medication information.';
     }
 
     final prompt = '''
-Anda ialah pembantu kesihatan AI mesra untuk sistem SmartDispense AI.
-Jawab soalan pengguna berkaitan ubat-ubatan, dos, atau kesihatan am secara profesional dan jelas dalam Bahasa Melayu:
+You are a friendly AI health assistant for the SmartDispense AI system.
+Answer the user's question about medications, dosage, or general health in a professional and clear way, in English:
 
-Soalan: $userPrompt
+Question: $userPrompt
 
-Jawab ringkas (maksimum 200 perkataan), guna ayat lengkap, dan pastikan jawapan siap sehingga akhir.
+Keep it short (maximum 200 words), use complete sentences, and make sure the answer is finished.
+Do not give a definitive diagnosis or dosing instructions; recommend consulting a doctor or pharmacist for medical decisions.
 ''';
 
     return _callAi(prompt);
@@ -97,7 +100,7 @@ Jawab ringkas (maksimum 200 perkataan), guna ayat lengkap, dan pastikan jawapan 
 
       if (response.status < 200 || response.status >= 300) {
         debugPrint('AI Edge Function returned status ${response.status}.');
-        return 'Servis AI tidak dapat memproses permintaan. Sila cuba lagi.';
+        return 'The AI service could not process the request. Please try again.';
       }
 
       final data = response.data;
@@ -107,19 +110,19 @@ Jawab ringkas (maksimum 200 perkataan), guna ayat lengkap, dan pastikan jawapan 
             .replaceAll(RegExp(r'^#+\s*', multiLine: true), '')
             .trim();
         if (text.isNotEmpty) {
-          // Edge function menanda jawapan terpotong (had token model)
+          // The edge function flags truncated answers (model token limit)
           if (data['truncated'] == true) {
-            return '$text\n\n(Jawapan dipendekkan. Tanya semula dengan soalan lebih spesifik untuk maklumat lanjut.)';
+            return '$text\n\n(The answer was shortened. Ask again with a more specific question for more details.)';
           }
           return text;
         }
       }
 
       debugPrint('AI Edge Function returned an invalid response.');
-      return 'Servis AI tidak memberikan jawapan yang sah. Sila cuba lagi.';
+      return 'The AI service did not return a valid answer. Please try again.';
     } on Exception catch (error) {
       debugPrint('AI Edge Function request failed: $error');
-      return 'Gagal menghubungi servis AI. Pastikan fungsi Supabase telah diterbitkan dan anda telah log masuk.';
+      return 'Could not reach the AI service. Make sure the Supabase function is deployed and you are logged in.';
     }
   }
 }

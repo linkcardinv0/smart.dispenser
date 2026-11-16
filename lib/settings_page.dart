@@ -138,7 +138,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       child: ListTile(
                         leading: const Icon(Icons.group_add_rounded,
                             color: Color(0xFF00B4D8)),
-                        title: const Text('Kod Jemputan Penjaga',
+                        title: const Text('Caregiver Invite Code',
                             style: TextStyle(color: Colors.white)),
                         subtitle: Text(
                           code,
@@ -156,7 +156,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             await Clipboard.setData(ClipboardData(text: code));
                             if (!context.mounted) return;
                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                            content: Text('Kod disalin'),
+                            content: Text('Code copied'),
                             backgroundColor: Color(0xFF00B4D8),
                             behavior: SnackBarBehavior.floating,
                             ));

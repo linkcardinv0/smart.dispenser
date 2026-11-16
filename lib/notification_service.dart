@@ -69,8 +69,8 @@ class NotificationService {
     }
     if (!notificationsEnabled) {
       throw StateError(
-        'Kebenaran notifikasi dimatikan. Hidupkan notifikasi aplikasi '
-        'SmartDispense AI di tetapan telefon.',
+        'Notification permission is turned off. Enable notifications for the '
+        'SmartDispense AI app in your phone settings.',
       );
     }
 
@@ -83,8 +83,8 @@ class NotificationService {
     }
     if (!canScheduleExact) {
       throw StateError(
-        'Kebenaran penggera tepat belum diberikan. Benarkan "Alarms & '
-        'reminders" untuk SmartDispense AI di tetapan telefon.',
+        'Exact alarm permission has not been granted. Allow "Alarms & '
+        'reminders" for SmartDispense AI in your phone settings.',
       );
     }
   }
@@ -136,8 +136,8 @@ class NotificationService {
     await _notificationsPlugin.cancel(id);
     await _notificationsPlugin.zonedSchedule(
       id,
-      '⏰ MASA MAKAN UBAT!',
-      'Sila ambil $medicationName dari Slot $slotNumber',
+      '⏰ TIME TO TAKE YOUR MEDICATION!',
+      'Please take $medicationName from Slot $slotNumber',
       tzScheduledTime,
       _details,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -147,7 +147,7 @@ class NotificationService {
       payload: '$medicationName|Slot $slotNumber',
     );
 
-    debugPrint('Alarm slot $slotNumber ($medicationName) dijadualkan: '
+    debugPrint('Alarm slot $slotNumber ($medicationName) scheduled: '
         '$tzScheduledTime');
   }
 
@@ -207,7 +207,7 @@ class NotificationService {
           checkPermissions: false,
         );
       } catch (e) {
-        debugPrint('Gagal jadualkan alarm slot $slot: $e');
+        debugPrint('Failed to schedule alarm for slot $slot: $e');
       }
     }
   }
@@ -219,14 +219,14 @@ class NotificationService {
     final when = tz.TZDateTime.now(tz.local).add(Duration(seconds: seconds));
     await _notificationsPlugin.zonedSchedule(
       9999,
-      '⏰ UJIAN ALARM',
-      'Jika anda nampak ini, alarm berfungsi.',
+      '⏰ ALARM TEST',
+      'If you can see this, the alarm is working.',
       when,
       _details,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
-      payload: 'Ujian Alarm|Test',
+      payload: 'Alarm Test|Test',
     );
   }
 
@@ -247,10 +247,10 @@ class NotificationService {
       if (await canLaunchUrl(smsUri)) {
         await launchUrl(smsUri);
       } else {
-        debugPrint("Gagal membuka aplikasi SMS");
+        debugPrint("Could not open the SMS app");
       }
     } catch (e) {
-      debugPrint("Gagal menghantar SMS: $e");
+      debugPrint("Failed to send SMS: $e");
     }
   }
 }

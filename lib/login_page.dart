@@ -20,6 +20,8 @@ class _LoginPageState extends State<LoginPage> {
   final _ageController = TextEditingController();
   bool _isLoading = false;
   bool _isSignUp = false;
+  bool _awaitingCode = false; // true = show the verification code screen
+  final _codeController = TextEditingController();
   String _role = 'patient'; // 'patient' atau 'caregiver'
 
   @override
@@ -29,6 +31,7 @@ class _LoginPageState extends State<LoginPage> {
     _nameController.dispose();
     _phoneController.dispose();
     _ageController.dispose();
+    _codeController.dispose();
     super.dispose();
   }
 
@@ -37,7 +40,7 @@ class _LoginPageState extends State<LoginPage> {
     final password = _passwordController.text.trim();
 
     if (email.isEmpty || password.isEmpty) {
-      _showSnackBar('Sila isi e-mel dan kata laluan.');
+      _showSnackBar('Please enter your email and password.');
       return;
     }
 
@@ -47,15 +50,15 @@ class _LoginPageState extends State<LoginPage> {
 
     if (_isSignUp) {
       if (name.isEmpty || phone.isEmpty) {
-        _showSnackBar('Sila isi nama dan nombor telefon.');
+        _showSnackBar('Please enter your name and phone number.');
         return;
       }
       if (_role == 'patient' && age == null) {
-        _showSnackBar('Sila isi umur pesakit.');
+        _showSnackBar('Please enter the age of the patient.');
         return;
       }
       if (age != null && (age < 1 || age > 120)) {
-        _showSnackBar('Sila masukkan umur yang sah.');
+        _showSnackBar('Please enter a valid age.');
         return;
       }
     }
@@ -78,12 +81,20 @@ class _LoginPageState extends State<LoginPage> {
           },
         );
 
-        if (res.user != null) {
-          // 🟢 Sambung semula langganan Web Push peranti ini selepas mendaftar
+        if (res.session != null) {
+          // Email confirmation is off: user is already signed in
           await syncWebPushSubscription();
+          _showSnackBar('Sign-up successful!');
+        } else {
+          // Email confirmation is on: ask for the code sent by email
+          if (mounted) {
+            setState(() {
+              _awaitingCode = true;
+              _codeController.clear();
+            });
+          }
+          _showSnackBar('We sent a verification code to $email.');
         }
-
-        _showSnackBar('Pendaftaran berjaya! Sila semak e-mel pengesahan jika ada.');
       } else {
         // Log Masuk Supabase Auth
         final AuthResponse res = await supabase.auth.signInWithPassword(
@@ -97,12 +108,122 @@ class _LoginPageState extends State<LoginPage> {
         }
       }
     } on AuthException catch (error) {
-      _showSnackBar(error.message);
+      if (error.message.toLowerCase().contains('email not confirmed')) {
+        // Account exists but is not verified yet: send a fresh code
+        try {
+          await supabase.auth.resend(type: OtpType.signup, email: email);
+        } catch (_) {}
+        if (mounted) {
+          setState(() {
+            _awaitingCode = true;
+            _codeController.clear();
+          });
+        }
+        _showSnackBar('Your email is not verified yet. We sent you a new code.');
+      } else {
+        _showSnackBar(error.message);
+      }
     } catch (error) {
-      _showSnackBar('Ralat tidak dijangka berlaku.');
+      _showSnackBar('An unexpected error occurred.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _verifyCode() async {
+    final email = _emailController.text.trim();
+    final code = _codeController.text.trim();
+
+    if (code.isEmpty) {
+      _showSnackBar('Please enter the verification code.');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final AuthResponse res = await supabase.auth.verifyOTP(
+        email: email,
+        token: code,
+        type: OtpType.signup,
+      );
+      if (res.user != null) {
+        await syncWebPushSubscription();
+        if (mounted) setState(() => _awaitingCode = false);
+      }
+    } on AuthException catch (error) {
+      _showSnackBar(error.message);
+    } catch (_) {
+      _showSnackBar('An unexpected error occurred.');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _resendCode() async {
+    final email = _emailController.text.trim();
+    try {
+      await supabase.auth.resend(type: OtpType.signup, email: email);
+      _showSnackBar('A new code was sent to $email.');
+    } on AuthException catch (error) {
+      _showSnackBar(error.message);
+    } catch (_) {
+      _showSnackBar('Could not resend the code. Please try again.');
+    }
+  }
+
+  List<Widget> _buildCodeSection() {
+    return [
+      Text(
+        'Enter the verification code sent to\n${_emailController.text.trim()}',
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: Colors.white70, fontSize: 13),
+      ),
+      const SizedBox(height: 16),
+      _buildField(
+        controller: _codeController,
+        label: 'Verification Code',
+        icon: Icons.pin_outlined,
+        keyboardType: TextInputType.number,
+        formatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          LengthLimitingTextInputFormatter(10),
+        ],
+      ),
+      const SizedBox(height: 24),
+      SizedBox(
+        width: double.infinity,
+        height: 48,
+        child: ElevatedButton(
+          onPressed: _isLoading ? null : _verifyCode,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF00B4D8),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          child: _isLoading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                      color: Colors.white, strokeWidth: 2),
+                )
+              : const Text('VERIFY',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextButton(
+        onPressed: _isLoading ? null : _resendCode,
+        child: const Text('Resend code',
+            style: TextStyle(color: Color(0xFF00B4D8))),
+      ),
+      TextButton(
+        onPressed: () => setState(() => _awaitingCode = false),
+        child: const Text('Back', style: TextStyle(color: Colors.white54)),
+      ),
+    ];
   }
 
   void _showSnackBar(String text) {
@@ -234,38 +355,43 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          _isSignUp ? 'Daftar Akaun Baharu' : 'Log Masuk Akses Dispenser',
+                          _awaitingCode
+                              ? 'Verify Your Email'
+                              : _isSignUp
+                                  ? 'Create New Account'
+                                  : 'Sign In to Access Your Dispenser',
                           style: const TextStyle(color: Colors.white60, fontSize: 13),
                         ),
                         const SizedBox(height: 28),
+                        if (_awaitingCode) ..._buildCodeSection() else ...[
                         if (_isSignUp) ...[
                           Row(
                             children: [
-                              _roleChip('patient', 'Pesakit',
+                              _roleChip('patient', 'Patient',
                                   Icons.personal_injury_outlined),
                               const SizedBox(width: 12),
-                              _roleChip('caregiver', 'Penjaga',
+                              _roleChip('caregiver', 'Caregiver',
                                   Icons.volunteer_activism_outlined),
                             ],
                           ),
                           const SizedBox(height: 16),
                           _buildField(
                             controller: _nameController,
-                            label: 'Nama Penuh',
+                            label: 'Full Name',
                             icon: Icons.person_outline_rounded,
                             keyboardType: TextInputType.name,
                           ),
                           const SizedBox(height: 16),
                           _buildField(
                             controller: _phoneController,
-                            label: 'Nombor Telefon',
+                            label: 'Phone Number',
                             icon: Icons.phone_outlined,
                             keyboardType: TextInputType.phone,
                           ),
                           const SizedBox(height: 16),
                           _buildField(
                             controller: _ageController,
-                            label: _role == 'patient' ? 'Umur' : 'Umur (pilihan)',
+                            label: _role == 'patient' ? 'Age' : 'Age (optional)',
                             icon: Icons.cake_outlined,
                             keyboardType: TextInputType.number,
                             formatters: [
@@ -280,7 +406,7 @@ class _LoginPageState extends State<LoginPage> {
                           keyboardType: TextInputType.emailAddress,
                           style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
-                            labelText: 'E-mel',
+                            labelText: 'Email',
                             labelStyle: const TextStyle(color: Color(0xFF00B4D8)),
                             prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF00B4D8)),
                             filled: true,
@@ -301,7 +427,7 @@ class _LoginPageState extends State<LoginPage> {
                           obscureText: true,
                           style: const TextStyle(color: Colors.white),
                           decoration: InputDecoration(
-                            labelText: 'Kata Laluan',
+                            labelText: 'Password',
                             labelStyle: const TextStyle(color: Color(0xFF00B4D8)),
                             prefixIcon: const Icon(Icons.lock_outline_rounded, color: Color(0xFF00B4D8)),
                             filled: true,
@@ -336,7 +462,7 @@ class _LoginPageState extends State<LoginPage> {
                                     child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                                   )
                                 : Text(
-                                    _isSignUp ? 'DAFTAR' : 'LOG MASUK',
+                                    _isSignUp ? 'SIGN UP' : 'SIGN IN',
                                     style: const TextStyle(fontWeight: FontWeight.bold),
                                   ),
                           ),
@@ -348,11 +474,12 @@ class _LoginPageState extends State<LoginPage> {
                           },
                           child: Text(
                             _isSignUp
-                                ? 'Sudah ada akaun? Log Masuk'
-                                : 'Belum ada akaun? Daftar Sini',
+                                ? 'Already have an account? Sign In'
+                                : 'No account yet? Sign up here',
                             style: const TextStyle(color: Color(0xFF00B4D8)),
                           ),
                         ),
+                        ],
                       ],
                     ),
                   ),
