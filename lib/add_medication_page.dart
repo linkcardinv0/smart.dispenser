@@ -50,6 +50,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
   String _aiInsightText = 'Tap "Analyze with AI" to generate real-time safety warnings.';
   bool _isAnalyzing = false;
   bool _isSaving = false;
+  final ScrollController _aiScroll = ScrollController();
 
   // Simulated live sensor data from the 4 dispenser slots
   final Map<int, SlotSensorData> _slotsData = const {
@@ -64,6 +65,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
     _nameController.dispose();
     _dosageController.dispose();
     _formController.dispose();
+    _aiScroll.dispose();
     super.dispose();
   }
 
@@ -101,6 +103,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
         _aiInsightText = result;
         _isAnalyzing = false;
       });
+      if (_aiScroll.hasClients) _aiScroll.jumpTo(0);
     }
   }
 
@@ -180,7 +183,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
         try {
           await NotificationService().syncFromDatabase();
         } catch (e) {
-          _showSnackBar('Ubat disimpan, tetapi alarm gagal dijadualkan: $e');
+          _showSnackBar('Medication saved, but the alarm could not be scheduled: $e');
         }
       }
 
@@ -441,7 +444,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
                       ),
                     ),
                     const Text(
-                      'Tukar',
+                      'Change',
                       style: TextStyle(
                         color: primaryColor,
                         fontSize: 12,
@@ -511,13 +514,23 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
                       ),
                     )
                   else
-                    Text(
-                      _aiInsightText,
-                      softWrap: true,
-                      style: const TextStyle(
-                        color: Colors.black87,
-                        fontSize: 13,
-                        height: 1.4,
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 220),
+                      child: Scrollbar(
+                        controller: _aiScroll,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          controller: _aiScroll,
+                          padding: const EdgeInsets.only(right: 8),
+                          child: SelectableText(
+                            _aiInsightText,
+                            style: const TextStyle(
+                              color: Colors.black87,
+                              fontSize: 13,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                 ],
