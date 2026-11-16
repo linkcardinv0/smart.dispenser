@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/foundation.dart'; // Ditambah untuk semakan kIsWeb
 import 'package:flutter/material.dart';
@@ -22,6 +23,24 @@ import 'caregiver_dashboard.dart';
 // Global instance Supabase & Navigator Key
 final supabase = Supabase.instance.client;
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+// ============================================================
+// TETAPAN LOG PIL  (UBAH IKUT SKEMA SUPABASE KAU)
+// ============================================================
+const String kLogsTable = 'pill_logs';
+const String kLogsUserColumn = 'user_id';
+const String kLogsNameColumn = 'medication_name';
+const String kLogsStatusColumn = 'status';
+const String kLogsTimeColumn = 'dispensed_at';
+// Status yang mengandungi kata kunci ini dikira "dah diambil/dikeluarkan"
+// (huruf besar kecil tak penting). Status lalai log = 'DISPENSED'.
+const List<String> kTakenKeywords = ['DISPENSED', 'TAKEN', 'VISION'];
+// Log dikira untuk dos tertentu jika masanya dalam tetingkap ini
+// berbanding masa jadual dos tersebut.
+const Duration kTakenWindowBefore = Duration(minutes: 60);
+const Duration kTakenWindowAfter = Duration(hours: 3);
+// Berapa lama selepas masa dos, ia masih dipaparkan sebagai OVERDUE
+const Duration kOverdueGrace = Duration(minutes: 60);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -623,83 +642,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               const SizedBox(height: 20),
+              // Kad dos seterusnya: sync terus dengan jadual 'medications'
               _buildGlassContainer(
                 borderColor: const Color(0xFF00B4D8).withValues(alpha: 0.5),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.notifications_active_outlined, color: Color(0xFF00B4D8), size: 18),
-                            SizedBox(width: 8),
-                            Text(
-                              'NEXT UPCOMING DOSE',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF00B4D8),
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.orangeAccent.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.orangeAccent, width: 0.8),
-                          ),
-                          child: const Text(
-                            'DUE 08:00 AM',
-                            style: TextStyle(
-                              color: Colors.orangeAccent,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 10,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(color: Colors.white12, height: 20),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF00B4D8).withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.medication_rounded, color: Color(0xFF00B4D8), size: 28),
-                        ),
-                        const SizedBox(width: 14),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Paracetamol (Slot 1)',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              SizedBox(height: 2),
-                              Text(
-                                '1 Tablet after meal • 500mg',
-                                style: TextStyle(color: Colors.white60, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                child: const NextDoseCard(),
               ),
             ],
           ),
@@ -869,6 +815,262 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: child,
         ),
       ),
+    );
+  }
+}
+
+// ============================================================
+// NEXT UPCOMING DOSE  (live dari 'medications' + log pil)
+// ============================================================
+
+class _NextDose {
+  final Map<String, dynamic> med;
+  final DateTime time;
+  final bool overdue;
+  const _NextDose({
+    required this.med,
+    required this.time,
+    required this.overdue,
+  });
+}
+
+class NextDoseCard extends StatefulWidget {
+  const NextDoseCard({super.key});
+
+  @override
+  State<NextDoseCard> createState() => _NextDoseCardState();
+}
+
+class _NextDoseCardState extends State<NextDoseCard> {
+  late final Stream<List<Map<String, dynamic>>> _medsStream;
+  late final Stream<List<Map<String, dynamic>>> _logsStream;
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = supabase.auth.currentUser?.id ?? '';
+    _medsStream = supabase
+        .from('medications')
+        .stream(primaryKey: ['id']).eq('user_id', uid);
+    _logsStream = supabase
+        .from(kLogsTable)
+        .stream(primaryKey: ['id']).eq(kLogsUserColumn, uid);
+
+    // Refresh setiap 30 saat supaya label DUE/OVERDUE sentiasa tepat
+    _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  bool _isRealMed(Map<String, dynamic> m) {
+    final n = m['medication_name']?.toString().trim() ?? '';
+    return n.isNotEmpty && n != 'Empty' && n != 'Unassigned';
+  }
+
+  bool _isToday(DateTime d, DateTime now) =>
+      d.year == now.year && d.month == now.month && d.day == now.day;
+
+  /// Log hari ini (masa tempatan) yang dikira sebagai dah diambil/dikeluarkan.
+  List<({String name, DateTime time})> _todayTakenLogs(
+      List<Map<String, dynamic>> logs, DateTime now) {
+    final result = <({String name, DateTime time})>[];
+    for (final log in logs) {
+      final status =
+          (log[kLogsStatusColumn]?.toString() ?? 'DISPENSED').toUpperCase();
+      if (!kTakenKeywords.any(status.contains)) continue;
+
+      final raw = log[kLogsTimeColumn]?.toString();
+      final parsed = raw == null ? null : DateTime.tryParse(raw);
+      if (parsed == null) continue;
+      final local = parsed.toLocal();
+      if (!_isToday(local, now)) continue;
+
+      final name =
+          (log[kLogsNameColumn]?.toString() ?? '').trim().toLowerCase();
+      result.add((name: name, time: local));
+    }
+    return result;
+  }
+
+  /// Cari dos seterusnya:
+  /// - dos hari ini yang dah diambil -> dikira esok
+  /// - dos hari ini yang belum diambil & sudah lepas dalam tempoh grace -> OVERDUE
+  /// - dos hari ini yang belum tiba -> hari ini
+  /// - selain itu -> esok
+  _NextDose? _findNextDose(
+    List<Map<String, dynamic>> meds,
+    List<Map<String, dynamic>> logs,
+  ) {
+    final now = DateTime.now();
+    final todayLogs = _todayTakenLogs(logs, now);
+    _NextDose? best;
+
+    for (final m in meds) {
+      if (!_isRealMed(m)) continue;
+
+      final t = m['scheduled_time']?.toString();
+      if (t == null || !t.contains(':')) continue;
+      final parts = t.split(':'); // support "08:00" & "08:00:00"
+      final h = int.tryParse(parts[0]);
+      final min = int.tryParse(parts[1]);
+      if (h == null || min == null) continue;
+
+      final medName =
+          (m['medication_name']?.toString() ?? '').trim().toLowerCase();
+      final todayDt = DateTime(now.year, now.month, now.day, h, min);
+      final alreadyTaken = todayLogs.any((l) =>
+          l.name == medName &&
+          l.time.isAfter(todayDt.subtract(kTakenWindowBefore)) &&
+          l.time.isBefore(todayDt.add(kTakenWindowAfter)));
+
+      DateTime candidate;
+      bool overdue = false;
+
+      if (alreadyTaken) {
+        candidate = todayDt.add(const Duration(days: 1));
+      } else if (!todayDt.isBefore(now)) {
+        candidate = todayDt;
+      } else if (now.difference(todayDt) <= kOverdueGrace) {
+        candidate = todayDt;
+        overdue = true;
+      } else {
+        candidate = todayDt.add(const Duration(days: 1));
+      }
+
+      if (best == null || candidate.isBefore(best.time)) {
+        best = _NextDose(med: m, time: candidate, overdue: overdue);
+      }
+    }
+    return best;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _medsStream,
+      builder: (context, medsSnap) {
+        return StreamBuilder<List<Map<String, dynamic>>>(
+          stream: _logsStream,
+          builder: (context, logsSnap) {
+            // Kalau table log tiada / error, teruskan tanpa tapis log
+            final logs = logsSnap.hasError
+                ? <Map<String, dynamic>>[]
+                : (logsSnap.data ?? <Map<String, dynamic>>[]);
+            final next = _findNextDose(medsSnap.data ?? [], logs);
+
+            String dueLabel = 'NO SCHEDULE';
+            String title = 'Tiada ubat dijadualkan';
+            String subtitle = 'Tambah ubat & tetapkan masa di tab Safety';
+            Color badgeColor = Colors.white54;
+
+            if (next != null) {
+              final now = DateTime.now();
+              final timeStr =
+                  TimeOfDay.fromDateTime(next.time).format(context);
+              if (next.overdue) {
+                dueLabel = 'OVERDUE $timeStr';
+                badgeColor = Colors.redAccent;
+              } else if (_isToday(next.time, now)) {
+                dueLabel = 'DUE $timeStr';
+                badgeColor = Colors.orangeAccent;
+              } else {
+                dueLabel = 'TOMORROW $timeStr';
+                badgeColor = Colors.orangeAccent;
+              }
+              title =
+                  '${next.med['medication_name']} (Slot ${next.med['slot_number']})';
+              subtitle = next.med['dosage']?.toString() ?? '';
+            }
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.notifications_active_outlined,
+                            color: Color(0xFF00B4D8), size: 18),
+                        SizedBox(width: 8),
+                        Text(
+                          'NEXT UPCOMING DOSE',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF00B4D8),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: badgeColor.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: badgeColor, width: 0.8),
+                      ),
+                      child: Text(
+                        dueLabel,
+                        style: TextStyle(
+                          color: badgeColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const Divider(color: Colors.white12, height: 20),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00B4D8).withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.medication_rounded,
+                          color: Color(0xFF00B4D8), size: 28),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle,
+                            style: const TextStyle(
+                                color: Colors.white60, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }
