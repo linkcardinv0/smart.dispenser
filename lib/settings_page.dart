@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'main.dart'; // Mengakses instance global 'supabase'
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'web_push_service.dart';
 import 'notification_service.dart';
 
@@ -19,6 +20,18 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _pushNotifications = true;
   bool _soundAlerts = true;
   bool _biometricUnlock = false;
+
+  late final Future<String?> _inviteFuture = _loadInviteCode();
+
+  Future<String?> _loadInviteCode() async {
+    if (widget.user == null) return null;
+    try {
+      final r = await supabase.rpc('get_my_invite_code');
+      return r as String?;
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -112,6 +125,48 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               const SizedBox(height: 16),
+              FutureBuilder<String?>(
+                future: _inviteFuture,
+                builder: (context, snap) {
+                  final code = snap.data;
+                  if (code == null || code.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: _buildGlassContainer(
+                      child: ListTile(
+                        leading: const Icon(Icons.group_add_rounded,
+                            color: Color(0xFF00B4D8)),
+                        title: const Text('Kod Jemputan Penjaga',
+                            style: TextStyle(color: Colors.white)),
+                        subtitle: Text(
+                          code,
+                          style: const TextStyle(
+                            color: Color(0xFF00B4D8),
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 4,
+                          ),
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.copy_rounded,
+                              color: Colors.white54),
+                          onPressed: () async {
+                            await Clipboard.setData(ClipboardData(text: code));
+                            if (!context.mounted) return;
+                           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                            content: Text('Kod disalin'),
+                            backgroundColor: Color(0xFF00B4D8),
+                            behavior: SnackBarBehavior.floating,
+                            ));
+                          },
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
               _buildGlassContainer(
                 child: ListTile(
                   leading: const Icon(Icons.logout, color: Colors.redAccent),

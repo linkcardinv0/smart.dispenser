@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'ai_service.dart';
@@ -42,10 +43,8 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
     'Custom Schedule',
   ];
 
-  int _selectedTimeIndex = 0;
-  final List<String> _reminderTimes = const ['08:00 AM', '12:00 PM', '06:00 PM'];
-  // Nilai 24-jam sepadan dengan _reminderTimes (disimpan ke pangkalan data)
-  final List<String> _reminderTimeValues = const ['08:00', '12:00', '18:00'];
+  // Masa dipilih bebas oleh user (time picker)
+  TimeOfDay _selectedTime = const TimeOfDay(hour: 8, minute: 0);
 
   // AI Insight state variables
   String _aiInsightText = 'Tap "Analyze with AI" to generate real-time safety warnings.';
@@ -66,6 +65,23 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
     _dosageController.dispose();
     _formController.dispose();
     super.dispose();
+  }
+
+  /// Format masa ke 24-jam 'HH:mm' untuk pangkalan data
+  String _timeToDb(TimeOfDay t) {
+    final hh = t.hour.toString().padLeft(2, '0');
+    final mm = t.minute.toString().padLeft(2, '0');
+    return '$hh:$mm';
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _selectedTime,
+    );
+    if (picked != null) {
+      setState(() => _selectedTime = picked);
+    }
   }
 
   Future<void> _runAILogic() async {
@@ -107,10 +123,10 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
     setState(() => _isSaving = true);
 
     try {
-      final scheduledTime = _reminderTimeValues[_selectedTimeIndex];
+      final scheduledTime = _timeToDb(_selectedTime);
+      final displayTime = _selectedTime.format(context);
 
-      // Satu slot = satu baris. Kemas kini baris sedia ada (cth. slot 'Empty'
-      // yang sudah ada masa) supaya tiada baris pendua.
+      // Satu slot = satu baris. Kemas kini baris sedia ada supaya tiada baris pendua.
       final existing = await supabase
           .from('medications')
           .select('id')
@@ -124,6 +140,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
         'dosage': dosage,
         'slot_number': _selectedSlot,
         'scheduled_time': scheduledTime,
+        'last_notified_on': null,
       };
 
       if (existing != null) {
@@ -158,14 +175,16 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
         });
       }
 
-      // Jadualkan alarm tepat pada masa yang dipilih
-      try {
-        await NotificationService().syncFromDatabase();
-      } catch (e) {
-        _showSnackBar('Ubat disimpan, tetapi alarm gagal dijadualkan: $e');
+      // Jadualkan alarm (Android sahaja, web guna Web Push dari Supabase)
+      if (!kIsWeb) {
+        try {
+          await NotificationService().syncFromDatabase();
+        } catch (e) {
+          _showSnackBar('Ubat disimpan, tetapi alarm gagal dijadualkan: $e');
+        }
       }
 
-      _showSnackBar('Medication saved. Reminder set for ${_reminderTimes[_selectedTimeIndex]} daily.');
+      _showSnackBar('Medication saved. Reminder set for $displayTime daily.');
       if (mounted) Navigator.of(context).pop();
     } on PostgrestException catch (error) {
       _showSnackBar('Supabase Error: ${error.message}');
@@ -394,42 +413,44 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
             ),
             const SizedBox(height: 20),
 
-            // Reminder Times
-            _buildSectionLabel('REMINDER TIMES'),
-            const SizedBox(height: 10),
-            Row(
-              children: List.generate(_reminderTimes.length, (index) {
-                final isSelected = _selectedTimeIndex == index;
-                return Expanded(
-                  child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _selectedTimeIndex = index;
-                      });
-                    },
-                    child: Container(
-                      margin: EdgeInsets.only(
-                        right: index == _reminderTimes.length - 1 ? 0 : 8,
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: BoxDecoration(
-                        color: isSelected ? primaryColor : lightBgColor,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+            // Reminder Time (pilih bebas)
+            _buildSectionLabel('REMINDER TIME'),
+            const SizedBox(height: 6),
+            InkWell(
+              onTap: _pickTime,
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                decoration: BoxDecoration(
+                  color: lightBgColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.access_time_rounded, color: primaryColor, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
                       child: Text(
-                        _reminderTimes[index],
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: isSelected ? Colors.white : Colors.black87,
-                          fontWeight:
-                              isSelected ? FontWeight.bold : FontWeight.w500,
-                          fontSize: 12,
+                        _selectedTime.format(context),
+                        style: const TextStyle(
+                          color: Colors.black87,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
-                  ),
-                );
-              }),
+                    const Text(
+                      'Tukar',
+                      style: TextStyle(
+                        color: primaryColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 24),
 

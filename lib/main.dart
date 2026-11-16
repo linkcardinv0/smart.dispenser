@@ -17,6 +17,7 @@ import 'ai_chat_sheet.dart';
 import 'pill_logs_sheet.dart';
 import 'notification_service.dart';
 import 'alarm_screen.dart';
+import 'caregiver_dashboard.dart';
 
 // Global instance Supabase & Navigator Key
 final supabase = Supabase.instance.client;
@@ -93,11 +94,58 @@ class MyApp extends StatelessWidget {
           final session =
               snapshot.data?.session ?? supabase.auth.currentSession;
           if (session != null) {
-            return const DashboardScreen();
+            return const RoleGate();
           }
           return const LoginPage();
         },
       ),
+    );
+  }
+}
+
+/// Pilih skrin ikut peranan akaun (patient / caregiver) dalam jadual 'profiles'.
+class RoleGate extends StatefulWidget {
+  const RoleGate({super.key});
+
+  @override
+  State<RoleGate> createState() => _RoleGateState();
+}
+
+class _RoleGateState extends State<RoleGate> {
+  late final Future<String> _roleFuture = _loadRole();
+
+  Future<String> _loadRole() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return 'patient';
+    try {
+      final data = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .maybeSingle();
+      return (data?['role'] as String?) ?? 'patient';
+    } catch (e) {
+      debugPrint('Gagal baca peranan: $e');
+      return 'patient';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String>(
+      future: _roleFuture,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Scaffold(
+            body: Center(
+              child: CircularProgressIndicator(color: Color(0xFF00B4D8)),
+            ),
+          );
+        }
+        return snapshot.data == 'caregiver'
+            ? const CaregiverDashboard()
+            : const DashboardScreen();
+      },
     );
   }
 }
