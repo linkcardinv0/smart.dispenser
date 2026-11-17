@@ -1,8 +1,10 @@
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'main.dart'; // Mengakses instance global 'supabase'
 import 'drugs_header_bar.dart';
+import 'web_push_service.dart';
 
 const Color _accent = Color(0xFF00B4D8);
 
@@ -90,7 +92,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
       if (!mounted) return;
       setState(() => _patients = patients);
     } catch (e) {
-      debugPrint('Failed to load patients: $e');
+      debugPrint('Gagal muat pesakit: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -106,20 +108,32 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
     );
   }
 
+  Future<void> _enableNotifications() async {
+    if (!kIsWeb) {
+      _snack('Phone notifications for caregivers work in the web app. On iPhone, add it to the Home Screen and open it from the icon.');
+      return;
+    }
+    // Mesti panggilan pertama dalam tap (syarat iOS)
+    final ok = await enableWebPush();
+    _snack(ok
+        ? 'Notifications enabled on this device'
+        : 'Not enabled. On iPhone, first Add to Home Screen, open the app from the icon, then try again.');
+  }
+
   Future<void> _showLinkDialog() async {
     final controller = TextEditingController();
     final code = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1E293B),
-        title: const Text('Link Patient',
+        title: const Text('Pautkan Pesakit',
             style: TextStyle(color: Colors.white)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Enter the 6-character invite code from the patient (found in Settings on the patient account).',
+              'Masukkan kod jemputan 6 aksara daripada pesakit (ada dalam Settings akaun pesakit).',
               style: TextStyle(color: Colors.white70, fontSize: 13),
             ),
             const SizedBox(height: 12),
@@ -144,11 +158,11 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('CANCEL', style: TextStyle(color: Colors.white60)),
+            child: const Text('BATAL', style: TextStyle(color: Colors.white60)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('LINK', style: TextStyle(color: _accent)),
+            child: const Text('PAUTKAN', style: TextStyle(color: _accent)),
           ),
         ],
       ),
@@ -159,12 +173,12 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
 
     try {
       final name = await supabase.rpc('link_patient', params: {'p_code': code});
-      _snack('Successfully linked with $name');
+      _snack('Berjaya dipautkan dengan $name');
       await _load();
     } on PostgrestException catch (e) {
       _snack(e.message);
     } catch (_) {
-      _snack('Could not link the patient. Please try again.');
+      _snack('Gagal memautkan pesakit. Cuba lagi.');
     }
   }
 
@@ -173,20 +187,20 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1E293B),
-        title: const Text('Unlink patient?',
+        title: const Text('Putuskan pautan?',
             style: TextStyle(color: Colors.white)),
         content: Text(
-          'You will no longer be able to see data for ${patient['full_name'] ?? 'this patient'}.',
+          'Anda tidak lagi boleh melihat data ${patient['full_name'] ?? 'pesakit ini'}.',
           style: const TextStyle(color: Colors.white70),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('CANCEL', style: TextStyle(color: Colors.white60)),
+            child: const Text('BATAL', style: TextStyle(color: Colors.white60)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('UNLINK',
+            child: const Text('PUTUSKAN',
                 style: TextStyle(color: Colors.redAccent)),
           ),
         ],
@@ -204,7 +218,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
           .eq('patient_id', patient['id']);
       await _load();
     } catch (_) {
-      _snack('Could not unlink the patient.');
+      _snack('Gagal memutuskan pautan.');
     }
   }
 
@@ -218,7 +232,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
         backgroundColor: _accent,
         foregroundColor: Colors.white,
         icon: const Icon(Icons.person_add_alt_1_rounded),
-        label: const Text('Link Patient'),
+        label: const Text('Pautkan Pesakit'),
       ),
       body: Container(
         width: double.infinity,
@@ -234,7 +248,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                   const EdgeInsets.only(top: 70, left: 20, right: 20, bottom: 100),
               children: [
                 const Text(
-                  'My Patients',
+                  'Pesakit Saya',
                   style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
@@ -243,8 +257,25 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'You can view medications and dispense history (read-only).',
+                  'Anda boleh melihat ubat dan sejarah dispense (baca sahaja).',
                   style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+                const SizedBox(height: 16),
+                _glass(
+                  padding: EdgeInsets.zero,
+                  child: ListTile(
+                    leading:
+                        const Icon(Icons.notifications_active, color: _accent),
+                    title: const Text(
+                      'Enable Phone Notifications',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    subtitle: const Text(
+                      'Get an alert when your linked patients are due for their medication',
+                      style: TextStyle(color: Colors.white54, fontSize: 11),
+                    ),
+                    onTap: _enableNotifications,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 if (_loading)
@@ -260,13 +291,13 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                         Icon(Icons.group_add_outlined, color: _accent, size: 40),
                         SizedBox(height: 12),
                         Text(
-                          'No patients linked yet.',
+                          'Belum ada pesakit dipautkan.',
                           style: TextStyle(
                               color: Colors.white, fontWeight: FontWeight.bold),
                         ),
                         SizedBox(height: 6),
                         Text(
-                          'Ask the patient for their invite code, then tap "Link Patient".',
+                          'Minta kod jemputan daripada pesakit, kemudian tekan "Pautkan Pesakit".',
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.white54, fontSize: 12),
                         ),
@@ -287,7 +318,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                             child: Icon(Icons.person, color: Colors.white),
                           ),
                           title: Text(
-                            (p['full_name'] ?? 'Patient').toString(),
+                            (p['full_name'] ?? 'Pesakit').toString(),
                             style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold),
@@ -314,7 +345,7 @@ class _CaregiverDashboardState extends State<CaregiverDashboard> {
                               builder: (_) => PatientDetailPage(
                                 patientId: p['id'] as String,
                                 patientName:
-                                    (p['full_name'] ?? 'Patient').toString(),
+                                    (p['full_name'] ?? 'Pesakit').toString(),
                               ),
                             ),
                           ),
@@ -350,7 +381,6 @@ class PatientDetailPage extends StatefulWidget {
 class _PatientDetailPageState extends State<PatientDetailPage> {
   List<Map<String, dynamic>> _meds = [];
   List<Map<String, dynamic>> _logs = [];
-  List<Map<String, dynamic>> _alerts = [];
   bool _loading = true;
   String? _error;
 
@@ -375,27 +405,15 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
             .order('dispensed_at', ascending: false)
             .limit(30),
       ]);
-      // Missed dose alerts (hidden if the table/policy is not set up yet)
-      List<Map<String, dynamic>> alerts = [];
-      try {
-        final rows = await supabase
-            .from('missed_dose_alerts')
-            .select('medication_name, alert_date, created_at')
-            .eq('user_id', widget.patientId)
-            .order('created_at', ascending: false)
-            .limit(10);
-        alerts = List<Map<String, dynamic>>.from(rows);
-      } catch (_) {}
       if (!mounted) return;
       setState(() {
-        _alerts = alerts;
         _meds = List<Map<String, dynamic>>.from(results[0]);
         _logs = List<Map<String, dynamic>>.from(results[1]);
         _error = null;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Failed to load data.');
+      setState(() => _error = 'Gagal memuatkan data.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -436,51 +454,7 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
               else if (_error != null)
                 Text(_error!, style: const TextStyle(color: Colors.redAccent))
               else ...[
-                if (_alerts.isNotEmpty) ...[
-                  const Text('Missed Dose Alerts',
-                      style: TextStyle(
-                          color: Colors.orangeAccent,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 10),
-                  ..._alerts.map(
-                    (a) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: _glass(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.warning_amber_rounded,
-                                color: Colors.orangeAccent),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                '${a['medication_name']} was not taken',
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14),
-                              ),
-                            ),
-                            Text(
-                              a['created_at'] != null
-                                  ? DateTime.parse(a['created_at'].toString())
-                                      .toLocal()
-                                      .toString()
-                                      .substring(0, 16)
-                                  : '',
-                              style: const TextStyle(
-                                  color: Colors.white54, fontSize: 10),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-                const Text('Medication Schedule',
+                const Text('Jadual Ubat',
                     style: TextStyle(
                         color: _accent,
                         fontSize: 16,
@@ -488,7 +462,7 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
                 const SizedBox(height: 10),
                 if (meds.isEmpty)
                   _glass(
-                    child: const Text('No medications registered.',
+                    child: const Text('Tiada ubat didaftarkan.',
                         style: TextStyle(color: Colors.white54)),
                   )
                 else
@@ -534,7 +508,7 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
                     ),
                   ),
                 const SizedBox(height: 20),
-                const Text('Dispense History',
+                const Text('Sejarah Dispense',
                     style: TextStyle(
                         color: _accent,
                         fontSize: 16,
@@ -542,7 +516,7 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
                 const SizedBox(height: 10),
                 if (_logs.isEmpty)
                   _glass(
-                    child: const Text('No dispense records yet.',
+                    child: const Text('Belum ada rekod dispense.',
                         style: TextStyle(color: Colors.white54)),
                   )
                 else
@@ -566,7 +540,7 @@ class _PatientDetailPageState extends State<PatientDetailPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    (log['medication_name'] ?? 'Medication')
+                                    (log['medication_name'] ?? 'Ubat')
                                         .toString(),
                                     style: const TextStyle(
                                         color: Colors.white,
