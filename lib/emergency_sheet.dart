@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 const Color _accent = Color(0xFF00B4D8);
@@ -34,7 +35,7 @@ class _Hospital {
       : '${(distanceM / 1000).toStringAsFixed(1)} km';
 }
 
-/// Skrin kecemasan: dail 999, hospital berdekatan (nombor + arah), kongsi lokasi.
+/// Skrin kecemasan: dail 999, alert penjaga, hospital berdekatan, kongsi lokasi.
 class EmergencySheet extends StatefulWidget {
   final String emergencyContact;
   final String attendingDoctor;
@@ -56,6 +57,9 @@ class _EmergencySheetState extends State<EmergencySheet> {
   List<_Hospital> _hospitals = [];
   bool _loading = true;
   String? _error;
+
+  bool _alerting = false;
+  bool _alertSent = false;
 
   @override
   void initState() {
@@ -166,12 +170,12 @@ class _EmergencySheetState extends State<EmergencySheet> {
 
   // ---------------- Tindakan ----------------
 
-  void _snack(String text) {
+  void _snack(String text, {Color color = _accent}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(text),
-        backgroundColor: _accent,
+        backgroundColor: color,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -211,6 +215,81 @@ class _EmergencySheetState extends State<EmergencySheet> {
     await Clipboard.setData(ClipboardData(
         text: 'https://maps.google.com/?q=${p.latitude},${p.longitude}'));
     _snack('Location link copied. Send it to family or paramedics.');
+  }
+
+  /// Hantar alert + lokasi kepada semua penjaga yang dipaut
+  /// melalui Edge Function 'emergency-alert'.
+  Future<void> _alertCaregivers() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Alert caregivers?',
+            style: TextStyle(color: Colors.white)),
+        content: Text(
+          _pos == null
+              ? 'Your caregivers will get an emergency notification. Your location is not available yet, so it will be sent without a location.'
+              : 'Your caregivers will get an emergency notification with your current location.',
+          style: const TextStyle(color: Colors.white70, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('CANCEL', style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _danger,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('SEND ALERT'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _alerting = true);
+    try {
+      final p = _pos;
+      final res = await Supabase.instance.client.functions.invoke(
+        'emergency-alert',
+        body: {
+          'lat': p?.latitude,
+          'lng': p?.longitude,
+          'accuracy': p?.accuracy,
+        },
+      );
+
+      final data = res.data;
+      final caregivers = data is Map ? (data['caregivers'] as num?)?.toInt() ?? 0 : 0;
+      final delivered = data is Map ? (data['delivered'] as num?)?.toInt() ?? 0 : 0;
+
+      if (caregivers == 0) {
+        _snack(
+          'No caregiver is linked to your account. Call 999 or your emergency contact.',
+          color: Colors.orangeAccent,
+        );
+      } else if (delivered == 0) {
+        _snack(
+          'Alert saved, but no caregiver device could be reached. Call them directly.',
+          color: Colors.orangeAccent,
+        );
+      } else {
+        if (mounted) setState(() => _alertSent = true);
+        _snack('Alert sent to $delivered caregiver device(s).',
+            color: Colors.green);
+      }
+    } catch (e) {
+      debugPrint('Emergency alert failed: $e');
+      _snack(
+        'Could not send the alert. Call 999 or your caregiver directly.',
+        color: Colors.redAccent,
+      );
+    } finally {
+      if (mounted) setState(() => _alerting = false);
+    }
   }
 
   // ---------------- UI ----------------
@@ -335,7 +414,11 @@ class _EmergencySheetState extends State<EmergencySheet> {
     final doctor = widget.attendingDoctor.trim();
     final conditions = widget.medicalConditions.trim();
 
-    if (contact.isEmpty && doctor.isEmpty && conditions.isEmpty) {
+    final hasContact = contact.isNotEmpty && contact != 'Not set';
+    final hasDoctor = doctor.isNotEmpty && doctor != 'Not set';
+    final hasConditions = conditions.isNotEmpty && conditions != 'Not set';
+
+    if (!hasContact && !hasDoctor && !hasConditions) {
       return _card(
         child: const Text(
           'No emergency contact saved yet. Add one in Profile > Edit Profile Details.',
@@ -348,7 +431,7 @@ class _EmergencySheetState extends State<EmergencySheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (contact.isNotEmpty)
+          if (hasContact)
             Row(
               children: [
                 Expanded(
@@ -362,19 +445,56 @@ class _EmergencySheetState extends State<EmergencySheet> {
                 ),
               ],
             ),
-          if (doctor.isNotEmpty)
+          if (hasDoctor)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text('Doctor: $doctor',
                   style: const TextStyle(color: Colors.white70)),
             ),
-          if (conditions.isNotEmpty)
+          if (hasConditions)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text('Conditions: $conditions',
                   style: const TextStyle(color: Colors.white70)),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _alertButton() {
+    return SizedBox(
+      height: 52,
+      child: OutlinedButton.icon(
+        onPressed: (_alerting || _alertSent) ? null : _alertCaregivers,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: _alertSent ? Colors.greenAccent : Colors.orangeAccent,
+          disabledForegroundColor:
+              _alertSent ? Colors.greenAccent : Colors.white38,
+          side: BorderSide(
+            color: _alertSent ? Colors.greenAccent : Colors.orangeAccent,
+            width: 1.5,
+          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+        icon: _alerting
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.orangeAccent),
+              )
+            : Icon(_alertSent
+                ? Icons.check_circle_rounded
+                : Icons.notifications_active_rounded),
+        label: Text(
+          _alerting
+              ? 'Sending alert...'
+              : _alertSent
+                  ? 'ALERT SENT TO CAREGIVERS'
+                  : 'ALERT MY CAREGIVERS',
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
       ),
     );
   }
@@ -452,6 +572,8 @@ class _EmergencySheetState extends State<EmergencySheet> {
                       style: TextStyle(color: Colors.white38, fontSize: 11),
                     ),
                     const SizedBox(height: 12),
+                    _alertButton(),
+                    const SizedBox(height: 12),
                     Row(
                       children: [
                         Expanded(
@@ -464,7 +586,7 @@ class _EmergencySheetState extends State<EmergencySheet> {
                                   borderRadius: BorderRadius.circular(12)),
                             ),
                             icon: const Icon(Icons.my_location_rounded, size: 18),
-                            label: const Text('Share my location',
+                            label: const Text('Copy my location',
                                 style: TextStyle(fontSize: 12)),
                           ),
                         ),

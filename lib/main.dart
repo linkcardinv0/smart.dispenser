@@ -19,6 +19,7 @@ import 'pill_logs_sheet.dart';
 import 'notification_service.dart';
 import 'alarm_screen.dart';
 import 'caregiver_dashboard.dart';
+import 'emergency_sheet.dart';
 
 // Global instance Supabase & Navigator Key
 final supabase = Supabase.instance.client;
@@ -182,12 +183,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isLoadingProfile = true;
 
   // Patient Profile State
-  String _patientName = 'John Doe';
-  String _phoneNumber = '+1 (555) 012-3456';
-  String _patientAgeGender = '68 yrs / Male';
-  String _emergencyContact = '+1 (555) 019-2834';
-  String _attendingDoctor = 'Dr. Robert Chen (Cardiology)';
-  String _medicalConditions = 'Hypertension, Type 2 Diabetes';
+  String _patientName = '';
+  String _phoneNumber = '';
+  String _patientAgeGender = '';
+  String _emergencyContact = '';
+  String _attendingDoctor = '';
+  String _medicalConditions = '';
 
   @override
   void initState() {
@@ -239,6 +240,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
   }
+
+  String _orNotSet(String v) => v.trim().isEmpty ? 'Not set' : v;
 
   @override
   void dispose() {
@@ -431,12 +434,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const RemindersPage(),
           ProfilePage(
             user: user,
-            patientName: _patientName,
-            phoneNumber: _phoneNumber,
-            patientAgeGender: _patientAgeGender,
-            emergencyContact: _emergencyContact,
-            attendingDoctor: _attendingDoctor,
-            medicalConditions: _medicalConditions,
+            patientName: _orNotSet(_patientName),
+            phoneNumber: _orNotSet(_phoneNumber),
+            patientAgeGender: _orNotSet(_patientAgeGender),
+            emergencyContact: _orNotSet(_emergencyContact),
+            attendingDoctor: _orNotSet(_attendingDoctor),
+            medicalConditions: _orNotSet(_medicalConditions),
             onEditPressed: _showEditProfileDialog,
           ),
           SettingsPage(user: user),
@@ -516,7 +519,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    _patientName.toUpperCase(),
+                    _patientName.trim().isEmpty ? 'PATIENT' : _patientName.toUpperCase(),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: 18,
@@ -527,7 +530,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '${user?.email ?? 'user@example.com'} | $_patientAgeGender',
+                    _patientAgeGender.trim().isEmpty
+                        ? (user?.email ?? 'user@example.com')
+                        : '${user?.email ?? 'user@example.com'} | $_patientAgeGender',
                     style: const TextStyle(
                       fontSize: 12,
                       color: Colors.white70,
@@ -606,24 +611,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       onTap: () => _onTabTapped(2),
                     ),
                     _buildGridMenuItem(
-                      icon: Icons.contact_phone_outlined,
+                      icon: Icons.local_hospital_rounded,
                       label: 'Emergency',
                       onTap: () {
-                        showDialog(
+                        showModalBottomSheet(
                           context: context,
-                          builder: (context) => AlertDialog(
-                            backgroundColor: const Color(0xFF1E293B),
-                            title: const Text('Emergency Contact', style: TextStyle(color: Colors.white)),
-                            content: Text(
-                              'Doctor: $_attendingDoctor\nEmergency Contact: $_emergencyContact\nConditions: $_medicalConditions',
-                              style: const TextStyle(color: Colors.white70, height: 1.5),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('CLOSE', style: TextStyle(color: Color(0xFF00B4D8))),
-                              )
-                            ],
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => EmergencySheet(
+                            emergencyContact: _emergencyContact,
+                            attendingDoctor: _attendingDoctor,
+                            medicalConditions: _medicalConditions,
                           ),
                         );
                       },
