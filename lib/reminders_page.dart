@@ -82,10 +82,14 @@ class _RemindersPageState extends State<RemindersPage> {
       try {
         // ==========================================
         // LANGKAH 1: Kemas kini jadual 'medications'
+        // last_notified_on di-reset supaya masa baru boleh
+        // mencetuskan notifikasi push hari ini juga.
         // ==========================================
         if (slotData != null && slotData['id'] != null) {
-          await supabase.from('medications').update(
-              {'scheduled_time': formattedTimeString}).eq('id', slotData['id']);
+          await supabase.from('medications').update({
+            'scheduled_time': formattedTimeString,
+            'last_notified_on': null,
+          }).eq('id', slotData['id']);
         } else {
           await supabase.from('medications').insert({
             'user_id': user.id,
