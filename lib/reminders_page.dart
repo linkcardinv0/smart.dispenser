@@ -20,6 +20,21 @@ class _RemindersPageState extends State<RemindersPage> {
   bool _isAnalyzing = false;
   String? _interactionResult;
 
+  // Baca 'medications' setiap 5 saat (tak bergantung pada Supabase Realtime)
+  late final Stream<List<Map<String, dynamic>>> _medsStream = _pollMeds();
+
+  Stream<List<Map<String, dynamic>>> _pollMeds() async* {
+    final uid = supabase.auth.currentUser?.id ?? '';
+    while (true) {
+      final data = await supabase
+          .from('medications')
+          .select()
+          .eq('user_id', uid);
+      yield List<Map<String, dynamic>>.from(data);
+      await Future.delayed(const Duration(seconds: 5));
+    }
+  }
+
   // Jadual lalai jika tiada tetapan masa disimpan di Supabase (4 Slot Carousel)
   final Map<int, TimeOfDay> _defaultSchedules = {
     1: const TimeOfDay(hour: 8, minute: 0),
@@ -199,8 +214,6 @@ class _RemindersPageState extends State<RemindersPage> {
 
   @override
   Widget build(BuildContext context) {
-    final user = supabase.auth.currentUser;
-
     return Container(
       width: double.infinity,
       height: double.infinity,
@@ -213,9 +226,7 @@ class _RemindersPageState extends State<RemindersPage> {
       ),
       child: SafeArea(
         child: StreamBuilder<List<Map<String, dynamic>>>(
-          stream: supabase
-              .from('medications')
-              .stream(primaryKey: ['id']).eq('user_id', user?.id ?? ''),
+          stream: _medsStream,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
               return Center(

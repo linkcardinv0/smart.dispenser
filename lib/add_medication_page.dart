@@ -129,15 +129,6 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
       final scheduledTime = _timeToDb(_selectedTime);
       final displayTime = _selectedTime.format(context);
 
-      // Satu slot = satu baris. Kemas kini baris sedia ada supaya tiada baris pendua.
-      final existing = await supabase
-          .from('medications')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('slot_number', _selectedSlot)
-          .limit(1)
-          .maybeSingle();
-
       final payload = {
         'medication_name': medName,
         'dosage': dosage,
@@ -146,12 +137,18 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
         'last_notified_on': null,
       };
 
-      if (existing != null) {
-        await supabase
-            .from('medications')
-            .update(payload)
-            .eq('id', existing['id']);
-      } else {
+      // Satu slot = satu baris. Kemas kini SEMUA baris slot ini milik user
+      // (termasuk pendua) dan pulangkan baris yang dikemas kini.
+      // .select('id') penting: jika RLS menyekat update, senarai ini kosong
+      // dan kita akan insert baris baru, bukannya senyap-senyap gagal.
+      final updated = await supabase
+          .from('medications')
+          .update(payload)
+          .eq('user_id', user.id)
+          .eq('slot_number', _selectedSlot)
+          .select('id');
+
+      if (updated.isEmpty) {
         await supabase.from('medications').insert({
           'user_id': user.id,
           ...payload,
@@ -192,6 +189,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
     } on PostgrestException catch (error) {
       _showSnackBar('Supabase Error: ${error.message}');
     } catch (error) {
+      debugPrint('Save medication failed: $error');
       _showSnackBar('An unexpected error occurred while saving.');
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -199,6 +197,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
   }
 
   void _showSnackBar(String text) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(text),
